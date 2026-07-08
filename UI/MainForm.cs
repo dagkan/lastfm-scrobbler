@@ -610,7 +610,7 @@ public class MainForm : Form
         var heading = PageHeading(Loc.T("NavScrobbling"));
         heading.Dock = DockStyle.Top;
 
-        var inner = new Panel { Dock = DockStyle.Fill, BackColor = CMain };
+        var inner = new Panel { Dock = DockStyle.Fill, BackColor = CMain, AutoScroll = true };
 
         void NumRow(string lbl, NumericUpDown ctrl, string unit)
         {

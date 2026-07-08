@@ -284,8 +284,25 @@ public class Database : IDisposable
         lock (_lock)
         {
             var total = (int)Scalar<long>("SELECT COUNT(*) FROM scrobble_history WHERE success=1");
-            var today = (int)Scalar<long>("SELECT COUNT(*) FROM scrobble_history WHERE success=1 AND date(scrobbled_at,'localtime')=date('now','localtime')");
-            var week  = (int)Scalar<long>("SELECT COUNT(*) FROM scrobble_history WHERE success=1 AND datetime(scrobbled_at)>=datetime('now','-7 days')");
+
+            // SQLite's date()/datetime() 'localtime' modifier returns NULL for some real-world
+            // scrobbled_at values (7-digit fractional seconds + 'Z', seen on real user data) even
+            // though the same string parses fine with no modifier at all. Compute the local-day
+            // boundary in .NET instead and compare as plain UTC datetimes (no modifier involved).
+            var startUtc = DateTime.Now.Date.ToUniversalTime();
+            var endUtc = startUtc.AddDays(1);
+            int today;
+            using (var cmd = _conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT COUNT(*) FROM scrobble_history
+                    WHERE success=1 AND datetime(scrobbled_at) >= datetime(@start) AND datetime(scrobbled_at) < datetime(@end)";
+                cmd.Parameters.AddWithValue("@start", startUtc.ToString("O"));
+                cmd.Parameters.AddWithValue("@end", endUtc.ToString("O"));
+                today = (int)(long)cmd.ExecuteScalar()!;
+            }
+
+            var week = (int)Scalar<long>("SELECT COUNT(*) FROM scrobble_history WHERE success=1 AND datetime(scrobbled_at)>=datetime('now','-7 days')");
             return (total, today, week);
         }
     }
@@ -294,17 +311,24 @@ public class Database : IDisposable
     {
         lock (_lock)
         {
-            var list = new List<(string, int)>();
+            // Grouping done in .NET, not via SQLite's date(...,'localtime') — see GetStats for why.
             using var cmd = _conn.CreateCommand();
             cmd.CommandText = @"
-                SELECT date(scrobbled_at,'localtime') as day, COUNT(*) as cnt
-                FROM scrobble_history
-                WHERE success=1 AND datetime(scrobbled_at) >= datetime('now', @days)
-                GROUP BY day ORDER BY day";
+                SELECT scrobbled_at FROM scrobble_history
+                WHERE success=1 AND datetime(scrobbled_at) >= datetime('now', @days)";
             cmd.Parameters.AddWithValue("@days", $"-{days} days");
-            using var r = cmd.ExecuteReader();
-            while (r.Read()) list.Add((r.GetString(0), r.GetInt32(1)));
-            return list.ToArray();
+            var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+            using (var r = cmd.ExecuteReader())
+            {
+                while (r.Read())
+                {
+                    if (!TryParseUtc(r.GetString(0), out var utc)) continue;
+                    var localDay = utc.ToLocalTime().ToString("yyyy-MM-dd");
+                    counts.TryGetValue(localDay, out var c);
+                    counts[localDay] = c + 1;
+                }
+            }
+            return counts.Select(kv => (kv.Key, kv.Value)).ToArray();
         }
     }
 
@@ -357,18 +381,20 @@ public class Database : IDisposable
     {
         lock (_lock)
         {
+            // Local-day grouping done in .NET — see GetStats for why the SQLite 'localtime'
+            // modifier isn't used here.
             using var cmd = _conn.CreateCommand();
-            cmd.CommandText = @"
-                SELECT date(scrobbled_at, 'localtime') as day
-                FROM scrobble_history WHERE success=1
-                GROUP BY day ORDER BY day DESC";
-            var days = new List<DateTime>();
-            using var r = cmd.ExecuteReader();
-            while (r.Read())
+            cmd.CommandText = "SELECT scrobbled_at FROM scrobble_history WHERE success=1";
+            var dayset = new HashSet<DateTime>();
+            using (var r = cmd.ExecuteReader())
             {
-                if (!r.IsDBNull(0)) days.Add(DateTime.Parse(r.GetString(0)).Date);
+                while (r.Read())
+                {
+                    if (TryParseUtc(r.GetString(0), out var utc)) dayset.Add(utc.ToLocalTime().Date);
+                }
             }
-            if (days.Count == 0) return 0;
+            if (dayset.Count == 0) return 0;
+            var days = dayset.OrderByDescending(d => d).ToList();
             if ((DateTime.Today - days[0]).TotalDays >= 2) return 0;
             int streak = 0;
             var expected = days[0];
@@ -379,6 +405,17 @@ public class Database : IDisposable
             }
             return streak;
         }
+    }
+
+    private static bool TryParseUtc(string s, out DateTime utc)
+    {
+        // ScrobbledAt is always written as DateTime.UtcNow.ToString("O"), which includes a
+        // trailing 'Z' — RoundtripKind alone is enough for DateTime.Parse to recognize that as UTC.
+        if (!DateTime.TryParse(s, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.RoundtripKind, out utc))
+            return false;
+        if (utc.Kind == DateTimeKind.Unspecified) utc = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+        return true;
     }
 
     public void ExportToCsv(string path)
