@@ -17,6 +17,10 @@ public class NormalizationRule
     public string Description { get; set; } = string.Empty;
     public bool IsBuiltIn { get; set; } = false; // built-in rules can be disabled but not deleted
 
+    // "" = applies to every player; otherwise a case-insensitive substring match against Track.SourceApp
+    // (e.g. "spotify", "AppleMusic") so a rule only fires for that player.
+    public string AppFilter { get; set; } = string.Empty;
+
     public static List<NormalizationRule> GetDefaults() =>
     [
         // Album cleanup

@@ -68,8 +68,6 @@ public class MainForm : Form
 
     private readonly System.Windows.Forms.Timer _tick = new() { Interval = 500 };
     private Track?   _currentTrack;
-    private DateTime _startedAt;
-    private int      _threshMs;
     private bool     _scrobbled;
 
     // (Account UI moved into the sidebar's ProfileCard)
@@ -86,6 +84,8 @@ public class MainForm : Form
     private TextBox  _webhookUrlBox    = null!;
     private CheckBox _webhookScrobbleChk    = null!;
     private CheckBox _webhookNowPlayingChk  = null!;
+    private TextBox  _excludedArtistsBox = null!;
+    private CheckBox _diagnosticLogChk   = null!;
 
     // Normalization page
     private CheckBox     _autoNormChk = null!;
@@ -97,6 +97,9 @@ public class MainForm : Form
     private Label       _statWeek    = null!;
     private Label       _statPending = null!;
     private HistoryList _historyList = null!;
+    private TextBox _historySearchBox = null!;
+    private List<ScrobbleRecord> _allHistory = new();
+    private readonly System.Windows.Forms.Timer _historySearchDebounce = new() { Interval = 200 };
 
     // Stats page
     private Panel  _chartPanel    = null!;
@@ -115,7 +118,7 @@ public class MainForm : Form
     private (string genre, int count)[]                _genreData      = [];
 
     // Friends page
-    private Panel _friendsListPanel = null!;
+    private FlowLayoutPanel _friendsListPanel = null!;
     private Label _friendsStatusLbl = null!;
     private static readonly HttpClient _avatarClient = new();
 
@@ -462,6 +465,14 @@ public class MainForm : Form
         _statPending.Location = new Point(540, 12);
         statsRow.Controls.AddRange([_statTotal, _statToday, _statWeek, _statPending]);
 
+        var searchRow = new Panel { Dock = DockStyle.Top, Height = 36, BackColor = CMain };
+        _historySearchBox = MakeInput(280, 26);
+        _historySearchBox.Location = new Point(24, 5);
+        _historySearchBox.PlaceholderText = "Search artist or track…";
+        _historySearchBox.TextChanged += (_, _) => { _historySearchDebounce.Stop(); _historySearchDebounce.Start(); };
+        _historySearchDebounce.Tick += (_, _) => { _historySearchDebounce.Stop(); ApplyHistoryFilter(); };
+        searchRow.Controls.Add(_historySearchBox);
+
         _historyList = new HistoryList { Dock = DockStyle.Fill, Accent = _cAccent };
 
         var ctxMenu  = new ContextMenuStrip { BackColor = Color.FromArgb(30, 30, 30), ForeColor = CFg };
@@ -496,6 +507,7 @@ public class MainForm : Form
         btnRow.Controls.AddRange([refreshBtn, manualBtn, exportBtn, importBtn]);
 
         _pageHistory.Controls.Add(_historyList);
+        _pageHistory.Controls.Add(searchRow);
         _pageHistory.Controls.Add(statsRow);
         _pageHistory.Controls.Add(heading);
         _pageHistory.Controls.Add(btnRow);
@@ -504,7 +516,19 @@ public class MainForm : Form
     private void LoadHistory()
     {
         if (InvokeRequired) { Invoke(LoadHistory); return; }
-        _historyList.Load(_db.LoadHistory(200));
+        _allHistory = _db.LoadHistory(200);
+        ApplyHistoryFilter();
+    }
+
+    private void ApplyHistoryFilter()
+    {
+        var q = _historySearchBox.Text.Trim();
+        var filtered = q.Length == 0
+            ? _allHistory
+            : _allHistory.Where(r =>
+                r.Artist.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                r.Title.Contains(q, StringComparison.OrdinalIgnoreCase)).ToList();
+        _historyList.Load(filtered);
     }
 
     private void RefreshStats()
@@ -660,6 +684,36 @@ public class MainForm : Form
             chk.Location = new Point(lx, y); inner.Controls.Add(chk); y += 28;
         }
 
+        // Advanced section
+        y += 10;
+        inner.Controls.Add(new Label
+        {
+            Text = "ADVANCED", Location = new Point(lx, y), Size = new Size(300, 18),
+            ForeColor = Color.FromArgb(70, 70, 70), Font = FontManager.Bold(8f),
+        });
+        y += 22;
+
+        inner.Controls.Add(new Label
+        {
+            Text = "Never scrobble these artists (one per line):", Location = new Point(lx, y),
+            Size = new Size(400, 18), ForeColor = CDim, Font = FontManager.Regular(9f),
+        });
+        y += 22;
+
+        _excludedArtistsBox = new TextBox
+        {
+            Location = new Point(lx, y), Size = new Size(400, 60), Multiline = true,
+            ScrollBars = ScrollBars.Vertical, BackColor = CInput, ForeColor = CFg,
+            BorderStyle = BorderStyle.FixedSingle, Font = FontManager.Regular(9f),
+        };
+        inner.Controls.Add(_excludedArtistsBox);
+        y += 70;
+
+        _diagnosticLogChk = MakeChk("Write a diagnostic log file (for troubleshooting)");
+        _diagnosticLogChk.Location = new Point(lx, y);
+        inner.Controls.Add(_diagnosticLogChk);
+        y += 30;
+
         _pageScrobble.Controls.Add(inner);
         _pageScrobble.Controls.Add(heading);
     }
@@ -768,7 +822,7 @@ public class MainForm : Form
             Color.FromArgb(48, 48, 48),
             Color.FromArgb(34, 34, 34),
             CFg,
-            () => OpenUrl("https://github.com/SpaceChildDev/lastfm-scrobbler"));
+            () => OpenUrl("https://github.com/daiquiridev/lastfm-scrobbler"));
         btnGitHub.Location = new Point(lx + 182, y);
 
         var btnSite = AboutActionBtn(
@@ -933,21 +987,26 @@ public class MainForm : Form
         _rulesGrid.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Enabled", HeaderText = Loc.T("ColEnabled"),     FillWeight = 5,  Width = 44 });
         _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Field",   HeaderText = Loc.T("ColField"),       FillWeight = 10, ReadOnly = true });
         _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Desc",    HeaderText = Loc.T("ColDescription"), FillWeight = 28, ReadOnly = true });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Pattern", HeaderText = "Pattern",               FillWeight = 38 });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Replace", HeaderText = Loc.T("ColReplace"),     FillWeight = 19 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Pattern", HeaderText = "Pattern",               FillWeight = 32 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Replace", HeaderText = Loc.T("ColReplace"),     FillWeight = 15 });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "App",     HeaderText = "App", FillWeight = 12, ToolTipText = "Only apply to a player whose name contains this (blank = all players)" });
 
-        var addBtn  = MakeBtn(Loc.T("BtnAddRule"),        116, 30); addBtn.Click  += AddRuleClicked;
-        var delBtn  = MakeBtn(Loc.T("BtnDeleteSelected"), 116, 30); delBtn.Click  += DeleteRuleClicked;
+        var addBtn    = MakeBtn(Loc.T("BtnAddRule"),        112, 30); addBtn.Click    += AddRuleClicked;
+        var delBtn    = MakeBtn(Loc.T("BtnDeleteSelected"), 112, 30); delBtn.Click    += DeleteRuleClicked;
+        var exportBtn = MakeBtn("Export Rules", 104, 30); exportBtn.Click += ExportRulesClicked;
+        var importBtn = MakeBtn("Import Rules", 104, 30); importBtn.Click += ImportRulesClicked;
         var saveBtn = MakeBtn(Loc.T("Save"), 86, 30);
         saveBtn.BackColor = _cAccent; _accentBtns.Add(saveBtn);
         saveBtn.Click += (_, _) => SaveNormSettings();
 
         var btnRow = new Panel { Dock = DockStyle.Bottom, Height = 44, BackColor = CMain };
-        addBtn.Location  = new Point(24,  7);
-        delBtn.Location  = new Point(150, 7);
+        addBtn.Location    = new Point(24,  7);
+        delBtn.Location    = new Point(144, 7);
+        exportBtn.Location = new Point(264, 7);
+        importBtn.Location = new Point(376, 7);
         saveBtn.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
         saveBtn.Location = new Point(790, 7);
-        btnRow.Controls.AddRange([addBtn, delBtn, saveBtn]);
+        btnRow.Controls.AddRange([addBtn, delBtn, exportBtn, importBtn, saveBtn]);
 
         _pageNorm.Controls.Add(_rulesGrid);
         _pageNorm.Controls.Add(_autoNormChk);
@@ -1346,12 +1405,14 @@ public class MainForm : Form
         refreshBtn.Click   += (_, _) => _ = RefreshFriendsAsync();
         topBar.Controls.AddRange([_friendsStatusLbl, refreshBtn]);
 
-        _friendsListPanel = new Panel
+        _friendsListPanel = new FlowLayoutPanel
         {
-            Dock       = DockStyle.Fill,
-            AutoScroll = true,
-            BackColor  = Color.FromArgb(22, 22, 22),
-            Padding    = new Padding(0, 4, 0, 0),
+            Dock          = DockStyle.Fill,
+            AutoScroll    = true,
+            BackColor     = Color.FromArgb(22, 22, 22),
+            Padding       = new Padding(12, 12, 12, 12),
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents  = true,
         };
 
         _pageFriends.Controls.Add(_friendsListPanel);
@@ -1382,7 +1443,7 @@ public class MainForm : Form
         }
     }
 
-    private void PopulateFriends((string name, string artist, string track, bool nowPlaying, string imageUrl)[] friends)
+    private void PopulateFriends((string name, string artist, string track, bool nowPlaying, string imageUrl, DateTime? playedAt)[] friends)
     {
         _friendsListPanel.Controls.Clear();
         _friendsStatusLbl.Text = $"{friends.Length} friends";
@@ -1392,34 +1453,32 @@ public class MainForm : Form
             _friendsListPanel.Controls.Add(new Label
             {
                 Text = "No friends found. Add friends on Last.fm first.",
-                Dock = DockStyle.Top, Height = 60,
+                Width = 600, Height = 60,
                 Font = FontManager.Regular(9f), ForeColor = CDim,
                 TextAlign = ContentAlignment.MiddleCenter,
             });
             return;
         }
 
-        const int cardH    = 68;
-        const int avatarSz = 46;
-        int       y        = 0;
+        const int cardW = 260, cardH = 84, avatarSz = 46;
 
-        foreach (var (name, artist, track, nowPlaying, imageUrl) in friends)
+        foreach (var (name, artist, track, nowPlaying, imageUrl, playedAt) in friends)
         {
-            var bgColor = y / cardH % 2 == 0 ? Color.FromArgb(22, 22, 22) : Color.FromArgb(20, 20, 20);
-            var row = new Panel
+            var card = new Panel
             {
-                Location  = new Point(0, y),
-                Size      = new Size(_friendsListPanel.ClientSize.Width, cardH),
-                BackColor = bgColor,
-                Anchor    = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+                Size      = new Size(cardW, cardH),
+                Margin    = new Padding(6),
+                BackColor = Color.FromArgb(26, 26, 26),
+                Cursor    = Cursors.Hand,
             };
 
             // ── Circular avatar ────────────────────────────────────────────
             var avatar = new PictureBox
             {
                 Size      = new Size(avatarSz, avatarSz),
-                Location  = new Point(20, (cardH - avatarSz) / 2),
+                Location  = new Point(14, (cardH - avatarSz) / 2),
                 BackColor = Color.Transparent,
+                Cursor    = Cursors.Hand,
             };
             avatar.Paint += (s, pe) =>
             {
@@ -1448,72 +1507,94 @@ public class MainForm : Form
                 pe.Graphics.DrawEllipse(pen, 0, 0, pb.Width - 1, pb.Height - 1);
             };
 
-            int textX = avatar.Right + 16;
+            int textX = avatar.Right + 12;
+            int textW = cardW - textX - 12;
 
             // ── Now playing dot ────────────────────────────────────────────
             if (nowPlaying)
             {
-                var dot = new Label
+                card.Controls.Add(new Label
                 {
-                    Text      = "●",
-                    Location  = new Point(textX - 2, 16),
-                    Size      = new Size(12, 12),
-                    Font      = FontManager.Regular(6f),
-                    ForeColor = _cAccent,
-                    TextAlign = ContentAlignment.MiddleCenter,
-                };
-                textX += 14;
-                row.Controls.Add(dot);
+                    Text = "●", Location = new Point(textX - 2, 14), Size = new Size(12, 12),
+                    Font = FontManager.Regular(6f), ForeColor = _cAccent, TextAlign = ContentAlignment.MiddleCenter,
+                });
+                textX += 14; textW -= 14;
             }
 
             // ── Name ──────────────────────────────────────────────────────
-            row.Controls.Add(new Label
+            card.Controls.Add(new Label
             {
-                Text         = name,
-                Location     = new Point(textX, 14),
-                Size         = new Size(400, 20),
-                Font         = FontManager.Bold(9.5f),
-                ForeColor    = CFg,
-                AutoEllipsis = true,
+                Text = name, Location = new Point(textX, 12), Size = new Size(textW, 18),
+                Font = FontManager.Bold(9.5f), ForeColor = CFg, AutoEllipsis = true,
             });
 
             // ── Track info ────────────────────────────────────────────────
-            var trackText  = track.Length > 0 ? $"{artist}  —  {track}" : "Not scrobbling recently";
-            var trackColor = nowPlaying ? _cAccent : Color.FromArgb(70, 70, 70);
-            row.Controls.Add(new Label
+            var trackText  = track.Length > 0 ? $"{artist} — {track}" : "Not scrobbling recently";
+            var trackColor = nowPlaying ? _cAccent : Color.FromArgb(150, 150, 150);
+            card.Controls.Add(new Label
             {
-                Text         = trackText,
-                Location     = new Point(textX, 36),
-                Size         = new Size(580, 17),
-                Font         = FontManager.Regular(8.5f),
-                ForeColor    = trackColor,
-                AutoEllipsis = true,
+                Text = trackText, Location = new Point(textX, 32), Size = new Size(textW, 32),
+                Font = FontManager.Regular(8.5f), ForeColor = trackColor, AutoEllipsis = true,
             });
 
-            // ── Separator ─────────────────────────────────────────────────
-            row.Controls.Add(new Panel
+            // ── Relative time (only when not currently playing) ───────────
+            if (!nowPlaying && playedAt.HasValue)
             {
-                Location  = new Point(20, cardH - 1),
-                Size      = new Size(row.Width - 40, 1),
-                BackColor = Color.FromArgb(28, 28, 28),
-                Anchor    = AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right,
-            });
+                card.Controls.Add(new Label
+                {
+                    Text = FormatRelativeTime(playedAt.Value), Location = new Point(textX, cardH - 20),
+                    Size = new Size(textW, 16), Font = FontManager.Regular(7.5f), ForeColor = Color.FromArgb(70, 70, 70),
+                });
+            }
 
-            row.Controls.Add(avatar);
-            _friendsListPanel.Controls.Add(row);
+            card.Controls.Add(avatar);
+
+            void OpenProfile(object? s, EventArgs e) => OpenUrl($"https://www.last.fm/user/{Uri.EscapeDataString(name)}");
+            card.Click += OpenProfile;
+            avatar.Click += OpenProfile;
+            foreach (Control c in card.Controls) c.Click += OpenProfile;
+
+            _friendsListPanel.Controls.Add(card);
 
             if (!string.IsNullOrEmpty(imageUrl))
                 _ = LoadAvatarAsync(avatar, imageUrl);
-
-            y += cardH;
         }
     }
 
-    private static async Task LoadAvatarAsync(PictureBox pb, string url)
+    private static string FormatRelativeTime(DateTime utc)
+    {
+        var span = DateTime.UtcNow - utc;
+        if (span.TotalMinutes < 1) return "just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes} min ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        if (span.TotalDays < 7) return $"{(int)span.TotalDays}d ago";
+        return utc.ToLocalTime().ToString("MMM d");
+    }
+
+    private async Task LoadAvatarAsync(PictureBox pb, string url)
     {
         try
         {
-            var bytes = await _avatarClient.GetByteArrayAsync(url);
+            var cacheDir = Path.Combine(_db.DataDirectory, "avatar_cache");
+            var cacheFile = Path.Combine(cacheDir,
+                Convert.ToHexString(System.Security.Cryptography.MD5.HashData(System.Text.Encoding.UTF8.GetBytes(url))) + ".jpg");
+
+            byte[] bytes;
+            if (File.Exists(cacheFile))
+            {
+                bytes = await File.ReadAllBytesAsync(cacheFile);
+            }
+            else
+            {
+                bytes = await _avatarClient.GetByteArrayAsync(url);
+                try
+                {
+                    Directory.CreateDirectory(cacheDir);
+                    await File.WriteAllBytesAsync(cacheFile, bytes);
+                }
+                catch { /* best-effort cache; not critical */ }
+            }
+
             using var ms = new MemoryStream(bytes);
             var img = Image.FromStream(ms);
             if (!pb.IsDisposed)
@@ -1546,7 +1627,11 @@ public class MainForm : Form
     {
         if (InvokeRequired) { Invoke(() => OnNowPlaying(sender, track)); return; }
 
-        bool isNewTrack = track is null || _currentTrack is null || !track.IsSameTrack(_currentTrack);
+        // A repeat play keeps the same Title+Artist but carries a fresh DetectedAt (the
+        // engine re-raises it as a new listen) — treat that as "new" too, or the progress
+        // bar/log would never reset for a replayed track.
+        bool isNewTrack = track is null || _currentTrack is null ||
+            !track.IsSameTrack(_currentTrack) || track.DetectedAt != _currentTrack.DetectedAt;
         _currentTrack = track;
 
         if (track is null)
@@ -1564,7 +1649,7 @@ public class MainForm : Form
         _monAlbum.Text = string.IsNullOrEmpty(track.Album) ? Loc.T("ResolvingAlbum") : track.Album;
         if (!isNewTrack) return;
 
-        _scrobbled = false; _startedAt = track.DetectedAt; _threshMs = _engine.GetScrobbleThresholdMs(track);
+        _scrobbled = false;
         _monNowLbl.Text = Loc.T("NowPlaying");
         _monTitle.ForeColor = CFg;
         _monArtist.ForeColor = Color.FromArgb(175, 175, 175);
@@ -1662,10 +1747,11 @@ public class MainForm : Form
 
     private void OnTick(object? sender, EventArgs e)
     {
-        if (_currentTrack is null || _scrobbled || _threshMs <= 0) return;
-        var elapsed   = (DateTime.UtcNow - _startedAt).TotalMilliseconds;
-        _monBar.Value = (int)Math.Min(100, elapsed / _threshMs * 100);
-        var rem       = TimeSpan.FromMilliseconds(Math.Max(0, _threshMs - elapsed));
+        if (_currentTrack is null || _scrobbled) return;
+        var (playedMs, thresholdMs) = _engine.GetScrobbleProgress();
+        if (thresholdMs <= 0) return;
+        _monBar.Value = (int)Math.Min(100, playedMs * 100.0 / thresholdMs);
+        var rem       = TimeSpan.FromMilliseconds(Math.Max(0, thresholdMs - playedMs));
         _monEta.Text  = rem.TotalSeconds < 1 ? Loc.T("Now") : $"–{(int)rem.TotalSeconds}s";
     }
 
@@ -1715,11 +1801,16 @@ public class MainForm : Form
         _filterAppleChk.Checked = _settings.FilterAppleMusicOnly;
         _editBeforeChk.Checked  = _settings.EditBeforeScrobble;
         _showNotifChk.Checked   = _settings.ShowNowPlayingNotification;
-        _startWinChk.Checked    = _settings.StartWithWindows;
+        // Reflect actual OS state (registry key or a leftover installer Startup-folder
+        // shortcut), not just the stored flag — otherwise a state set outside the app
+        // (e.g. the installer's own "Start with Windows" task) shows as unchecked forever.
+        _startWinChk.Checked    = IsStartWithWindowsEnabled();
         _autoNormChk.Checked    = _settings.AutoNormalize;
         _webhookUrlBox.Text          = _settings.WebhookUrl;
         _webhookScrobbleChk.Checked   = _settings.WebhookOnScrobble;
         _webhookNowPlayingChk.Checked = _settings.WebhookOnNowPlaying;
+        _excludedArtistsBox.Text     = _settings.ExcludedArtists;
+        _diagnosticLogChk.Checked    = _settings.EnableDiagnosticLog;
         var langIdx = Loc.Available.ToList().FindIndex(l => l.Code == _settings.Language);
         _langCombo.SelectedIndex = langIdx >= 0 ? langIdx : 0;
         UpdateAuthStatus();
@@ -1815,7 +1906,7 @@ public class MainForm : Form
         _rulesGrid.Rows.Clear();
         foreach (var rule in _db.LoadRules())
         {
-            var i = _rulesGrid.Rows.Add(rule.IsEnabled, rule.Field.ToString(), rule.Description, rule.Pattern, rule.Replacement);
+            var i = _rulesGrid.Rows.Add(rule.IsEnabled, rule.Field.ToString(), rule.Description, rule.Pattern, rule.Replacement, rule.AppFilter);
             _rulesGrid.Rows[i].Tag = rule;
             if (rule.IsBuiltIn) _rulesGrid.Rows[i].DefaultCellStyle.ForeColor = Color.FromArgb(70, 70, 70);
         }
@@ -1835,6 +1926,8 @@ public class MainForm : Form
         _settings.WebhookUrl                  = _webhookUrlBox.Text.Trim();
         _settings.WebhookOnScrobble           = _webhookScrobbleChk.Checked;
         _settings.WebhookOnNowPlaying         = _webhookNowPlayingChk.Checked;
+        _settings.ExcludedArtists             = _excludedArtistsBox.Text;
+        _settings.EnableDiagnosticLog         = _diagnosticLogChk.Checked;
         if (_langCombo.SelectedIndex >= 0)
         {
             var newLang = Loc.Available[_langCombo.SelectedIndex].Code;
@@ -1858,12 +1951,54 @@ public class MainForm : Form
             rule.IsEnabled   = Convert.ToBoolean(row.Cells["Enabled"].Value);
             rule.Pattern     = row.Cells["Pattern"].Value?.ToString() ?? rule.Pattern;
             rule.Replacement = row.Cells["Replace"].Value?.ToString() ?? rule.Replacement;
+            rule.AppFilter   = row.Cells["App"].Value?.ToString() ?? rule.AppFilter;
             _db.SaveRule(rule);
         }
         _settings.AutoNormalize = _autoNormChk.Checked;
         _db.SaveSettings(_settings);
         _engine.UpdateSettings(_settings);
         _engine.ReloadRules();
+    }
+
+    private void ExportRulesClicked(object? sender, EventArgs e)
+    {
+        using var dlg = new SaveFileDialog
+        {
+            Title = "Export Normalization Rules", Filter = "JSON files (*.json)|*.json",
+            FileName = "normalization_rules.json",
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        var custom = _db.LoadRules().Where(r => !r.IsBuiltIn).ToList();
+        var json = Newtonsoft.Json.JsonConvert.SerializeObject(custom, Newtonsoft.Json.Formatting.Indented);
+        File.WriteAllText(dlg.FileName, json);
+        MessageBox.Show($"Exported {custom.Count} rule(s) to {dlg.FileName}", "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+    }
+
+    private void ImportRulesClicked(object? sender, EventArgs e)
+    {
+        using var dlg = new OpenFileDialog { Title = "Import Normalization Rules", Filter = "JSON files (*.json)|*.json" };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        try
+        {
+            var json  = File.ReadAllText(dlg.FileName);
+            var rules = Newtonsoft.Json.JsonConvert.DeserializeObject<List<NormalizationRule>>(json) ?? [];
+            int imported = 0;
+            foreach (var rule in rules)
+            {
+                rule.Id = 0; // always insert as new — avoids clobbering an existing rule by id
+                rule.IsBuiltIn = false;
+                _db.SaveRule(rule);
+                imported++;
+            }
+            LoadRules();
+            MessageBox.Show($"Imported {imported} rule(s).", "Import Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Import failed: {ex.Message}", "Import Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void AuthClicked(object? sender, EventArgs e)
@@ -1967,6 +2102,20 @@ public class MainForm : Form
         try { return ColorTranslator.FromHtml(hex); } catch { return fallback; }
     }
 
+    private static string StartupShortcutPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.Startup), "Last.fm Scrobbler.lnk");
+
+    private static bool IsStartWithWindowsEnabled()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", writable: false);
+            if (key?.GetValue("LastFmScrobbler") is not null) return true;
+        }
+        catch { }
+        return File.Exists(StartupShortcutPath);
+    }
+
     private static void ApplyStartWithWindows(bool enable)
     {
         try
@@ -1974,11 +2123,22 @@ public class MainForm : Form
             var exe = Environment.ProcessPath ?? System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName;
             if (exe is null) return;
             using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", writable: true);
-            if (key is null) return;
-            if (enable) key.SetValue("LastFmScrobbler", $"\"{exe}\"");
-            else        key.DeleteValue("LastFmScrobbler", throwOnMissingValue: false);
+            if (key is not null)
+            {
+                if (enable) key.SetValue("LastFmScrobbler", $"\"{exe}\"");
+                else        key.DeleteValue("LastFmScrobbler", throwOnMissingValue: false);
+            }
         }
         catch { }
+
+        if (!enable)
+        {
+            // Unchecking must fully disable autostart regardless of how it got enabled —
+            // an older install's Startup-folder shortcut would otherwise keep launching
+            // the app and make the checkbox look "stuck" after every reboot.
+            try { if (File.Exists(StartupShortcutPath)) File.Delete(StartupShortcutPath); }
+            catch { }
+        }
     }
 
     private static void OpenUrl(string url)
@@ -2138,6 +2298,7 @@ public class MainForm : Form
         _engine.TrackScrobbled      -= OnScrobbled;
         _engine.PendingQueueFlushed -= OnQueueFlushed;
         _tick.Stop(); _tick.Dispose();
+        _historySearchDebounce.Stop(); _historySearchDebounce.Dispose();
         base.OnFormClosed(e);
     }
 }

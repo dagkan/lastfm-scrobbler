@@ -14,65 +14,63 @@
 
 ## v1.1.0 — Polish
 
-- [ ] Album art display in the monitor window
-- [ ] Windows 11 toast notifications with album art
-- [ ] Scrobble history browser (searchable list of past scrobbles)
-- [ ] Retry queue for failed scrobbles (offline support)
-- [ ] Tray icon changes to reflect current state (playing, idle, error)
+- [x] Album art display in the monitor window
+- [x] Windows 11 toast notifications with album art (best-effort — falls back to the classic balloon tip if toast registration fails on a given machine)
+- [x] Scrobble history browser (searchable list of past scrobbles)
+- [x] Retry queue for failed scrobbles (offline support)
+- [x] Tray icon changes to reflect current state (playing, idle, error)
 
 ## v1.2.0 — Multi-player support
 
-- [ ] iTunes / Apple Music (legacy) support
-- [ ] Spotify support via SMTC
-- [ ] Any SMTC-compatible player (generic mode)
-- [ ] Per-player normalization rules
+- [ ] iTunes / Apple Music (legacy) support — app-id string match exists, but unverified against an actual legacy iTunes install
+- [x] Spotify support via SMTC
+- [x] Any SMTC-compatible player (generic mode)
+- [x] Per-player normalization rules
 
 ## v1.3.0 — Power features
 
-- [ ] Love/unlove track from tray menu
-- [ ] Tag-based normalization (not just regex)
-- [ ] Import/export normalization rules
-- [ ] Manual scrobble entry
+- [x] Love/unlove track from tray menu
+- [ ] Tag-based normalization (not just regex) — no tag/genre data source is wired in yet
+- [x] Import/export normalization rules
+- [x] Manual scrobble entry
 
 ## v2.0.0 — Distribution
 
-- [ ] MSIX packaging for Microsoft Store distribution
-- [ ] Auto-updater
-- [ ] Code signing
+- [ ] MSIX packaging for Microsoft Store distribution — needs a Store account
+- [x] Auto-updater
+- [ ] Code signing — needs a code-signing certificate
 
 ## Longer term / Ideas
 
-- Scrobble from local media players (VLC, foobar2000) via plugin
-- Last.fm friends' listening activity in the tray
-- macOS companion app (using MusicKit / MediaPlayer APIs)
+- [x] Scrobble from local media players (VLC, foobar2000) — covered by generic SMTC mode when any SMTC-compatible player exposes a session; no dedicated plugin architecture for players that don't
+- [ ] Last.fm friends' listening activity in the tray (currently only on the in-app Friends page)
+- [ ] macOS companion app (using MusicKit / MediaPlayer APIs)
 
 ---
 
 ## Pending / Backlog
 
 ### About Page
-- Standard "About this app" layout: app name, version, build date
-- Donation button → spacechild.dev
-- GitHub link, changelog link
-- App description (one paragraph)
+- [x] App name, version shown; no build-date field
+- Donation button intentionally points at `buymeacoffee.com/daiquiri`, not `spacechild.dev`
+- [x] GitHub link (now `github.com/daiquiridev/lastfm-scrobbler`), changelog link (Version History)
+- [x] App description (one paragraph)
 
 ### Better Navigation & Menu Structure
-- Account page is currently thin (login only) — options:
-  - Merge Account into Settings as "Account & Settings"
-  - Or keep separate but enrich with Last.fm profile info (avatar, total scrobbles, member since)
-- Add About as a dedicated nav item
-- Consider grouping: Monitor | History | Stats | Friends | Settings (with Account + About inside)
+- [x] Account page replaced by a persistent sidebar ProfileCard (avatar, scrobble count, login/logout)
+- [x] About added as a dedicated nav item
+- [x] Sidebar grouping: Monitor | History | Stats | Friends | Scrobbling | Normalization | About
 
 ### Richer Account Page
-- Show Last.fm profile picture, total scrobble count, member since (via `user.getInfo`)
-- Auto-show login prompt on first run when no session is stored
+- [x] Profile picture, total scrobble count shown via `user.getInfo`
+- [ ] "Member since" (registered date) not fetched/shown
+- [ ] Auto-show login prompt on first run when no session is stored (currently opens the Monitor page, where the ProfileCard's login button is visible but not auto-triggered)
 
 ### Custom Domain for Updates
-- R2 currently at `pub-8a5464b225534730b481b262ffe4748b.r2.dev`
-- Move to `updates.lastfm.spacechild.dev` (add CNAME in Cloudflare, update `UpdateChecker.ManifestUrl` + `build.ps1`)
+- Solved functionally via the `proxy.lastfm.spacechild.dev` Cloudflare Worker (avoids the blocked `r2.dev` domain); a dedicated `updates.lastfm.spacechild.dev` CNAME would be cosmetic only — not planned
 
 ### Friends page redesign
-- Currently a thin list. Pull each friend's profile picture via `user.getInfo` and arrange as grid of avatar cards (avatar + username + last scrobbled track + "X minutes ago").
-- Click an avatar → open their last.fm profile in browser.
-- Optional: show a small "♥ now playing" indicator if the friend is currently listening (`user.getRecentTracks` with `nowplaying=true`).
-- Cache avatars locally to avoid refetching on every page open.
+- [x] Grid of avatar cards (avatar + username + last scrobbled track + relative time)
+- [x] Click an avatar → open their last.fm profile in browser
+- [x] "♥ now playing" indicator for friends currently listening
+- [x] Avatars cached to disk (`avatar_cache/`) instead of refetched on every page open

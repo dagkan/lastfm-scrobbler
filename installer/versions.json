@@ -1,5 +1,20 @@
 [
   {
+    "version": "1.2.18",
+    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.18.exe",
+    "sha256": "20167516e92fd06a8f314aec1f7a1d395d037e8d08b6e51932e8ae6a58eee212",
+    "date": "2026-07-08",
+    "notes": [
+      "Fix: repeat plays of the same track now scrobble each time (duplicate-window bug)",
+      "Fix: Start with Windows checkbox reflects real state and fully disables autostart",
+      "Pause/seek-aware scrobble timing (no more premature or skipped scrobbles)",
+      "Tray icon reflects state, tray tooltip shows last scrobble time",
+      "Love from tray menu, searchable history, per-player normalization rules",
+      "Optional diagnostic log, artist exclude list, Friends grid with cached avatars",
+      "Smaller install size"
+    ]
+  },
+  {
     "version": "1.2.16",
     "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.16.exe",
     "sha256": "e64e769d7a447b398ab5ee4d2a9793081e3f1f0c1a952ec25501b6dc5cc682aa",
@@ -74,12 +89,6 @@
     "version": "1.2.8",
     "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.8.exe",
     "sha256": "c74b720f569e1729891a3df7b9a8874899910334ec327a4eb7a8929821ededae",
-    "date": "2026-05-10"
-  },
-  {
-    "version": "1.2.7",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.7.exe",
-    "sha256": "7cfd9e40a3066c0e94ad5ba6dbf41508619a686df3a5b8442a05bca37ffa37bb",
     "date": "2026-05-10"
   }
 ]

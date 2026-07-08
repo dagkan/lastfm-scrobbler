@@ -32,4 +32,10 @@ public class AppSettings
     public string WebhookUrl { get; set; } = "";
     public bool WebhookOnScrobble { get; set; } = true;
     public bool WebhookOnNowPlaying { get; set; } = false;
+
+    // Newline-separated artist names/substrings — a track whose Artist contains any of these
+    // (case-insensitive) is never scrobbled or timed.
+    public string ExcludedArtists { get; set; } = "";
+
+    public bool EnableDiagnosticLog { get; set; } = false;
 }

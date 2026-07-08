@@ -3,6 +3,8 @@ using Windows.Media.Control;
 
 namespace LastFmScrobbler.Core;
 
+public enum PlaybackState { NoSession, Playing, Paused, Stopped }
+
 /// <summary>
 /// Listens to Windows System Media Transport Controls (SMTC) and raises
 /// events when the playing track changes or playback stops.
@@ -24,6 +26,14 @@ public class MediaWatcher : IDisposable
     // Debounce nulls so a real track that follows can cancel the empty event.
     private System.Threading.Timer? _nullDebounce;
     private const int NullDebounceMs = 1500;
+
+    // Repeat-play detection: a position sample that jumps from near-the-end
+    // back to near-zero for the *same* track (Title|Artist) means the user
+    // replayed it — MediaPropertiesChanged never fires for that since the
+    // metadata didn't change, so we have to catch it via the timeline instead.
+    private TimeSpan _lastPosition;
+    private string? _lastPositionKey;
+    private double _lastDurationSec;
 
     public async Task StartAsync(bool filterAppleMusicOnly)
     {
@@ -57,19 +67,91 @@ public class MediaWatcher : IDisposable
         {
             _session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
             _session.PlaybackInfoChanged -= OnPlaybackInfoChanged;
+            _session.TimelinePropertiesChanged -= OnTimelinePropertiesChanged;
         }
 
         _session = FindBestSession(_manager);
 
         if (_session is null)
         {
+            lock (_raiseLock) { _lastPositionKey = null; _lastPosition = TimeSpan.Zero; _lastDurationSec = 0; }
             RaiseTrackChanged(null);
             return;
         }
 
         _session.MediaPropertiesChanged += OnMediaPropertiesChanged;
         _session.PlaybackInfoChanged += OnPlaybackInfoChanged;
+        _session.TimelinePropertiesChanged += OnTimelinePropertiesChanged;
         await FetchAndRaiseAsync();
+    }
+
+    /// <summary>Domain-level playback state — used by ScrobbleEngine's poll without touching WinRT types.</summary>
+    public PlaybackState GetPlaybackState()
+    {
+        GlobalSystemMediaTransportControlsSession? session;
+        lock (_raiseLock) session = _session;
+        if (session is null) return PlaybackState.NoSession;
+        try
+        {
+            return session.GetPlaybackInfo().PlaybackStatus switch
+            {
+                GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing => PlaybackState.Playing,
+                GlobalSystemMediaTransportControlsSessionPlaybackStatus.Paused => PlaybackState.Paused,
+                GlobalSystemMediaTransportControlsSessionPlaybackStatus.Stopped => PlaybackState.Stopped,
+                GlobalSystemMediaTransportControlsSessionPlaybackStatus.Closed => PlaybackState.Stopped,
+                _ => PlaybackState.Paused, // Changing/Opened — treat as "not actively playing" (safe: freezes timing)
+            };
+        }
+        catch { return PlaybackState.NoSession; }
+    }
+
+    private void OnTimelinePropertiesChanged(
+        GlobalSystemMediaTransportControlsSession sender,
+        TimelinePropertiesChangedEventArgs args)
+    {
+        GlobalSystemMediaTransportControlsSession? session;
+        Track? lastTrack;
+        TimeSpan prevPos;
+        string? prevKey;
+        lock (_raiseLock)
+        {
+            session = _session;
+            lastTrack = _lastTrack;
+            prevPos = _lastPosition;
+            prevKey = _lastPositionKey;
+        }
+        if (session is null || lastTrack is null) return;
+
+        GlobalSystemMediaTransportControlsSessionTimelineProperties? tl;
+        GlobalSystemMediaTransportControlsSessionPlaybackStatus status;
+        try
+        {
+            tl = session.GetTimelineProperties();
+            status = session.GetPlaybackInfo().PlaybackStatus;
+        }
+        catch { return; }
+        if (tl is null) return;
+
+        var curPos = tl.Position;
+        var dur = tl.EndTime.TotalSeconds;
+        var key = lastTrack.Title + "|" + lastTrack.Artist;
+
+        bool isRepeat =
+            status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing &&
+            prevKey == key &&
+            dur >= 30 &&
+            prevPos.TotalSeconds >= dur - 12 &&
+            curPos.TotalSeconds <= 3;
+
+        lock (_raiseLock)
+        {
+            _lastPosition = curPos;
+            _lastPositionKey = key;
+            _lastDurationSec = dur;
+        }
+
+        if (isRepeat)
+            _ = FetchAndRaiseAsync(force: true);
     }
 
     private GlobalSystemMediaTransportControlsSession? FindBestSession(
@@ -102,7 +184,7 @@ public class MediaWatcher : IDisposable
         GlobalSystemMediaTransportControlsSession sender,
         PlaybackInfoChangedEventArgs args) => _ = FetchAndRaiseAsync();
 
-    private async Task FetchAndRaiseAsync()
+    private async Task FetchAndRaiseAsync(bool force = false)
     {
         if (_session is null) return;
 
@@ -165,7 +247,7 @@ public class MediaWatcher : IDisposable
 
             if (!track.IsValid) return;
 
-            RaiseTrackChanged(track);
+            RaiseTrackChanged(track, force);
         }
         catch
         {
@@ -207,7 +289,7 @@ public class MediaWatcher : IDisposable
         return (artist.Trim(), rawAlbumField.Trim());
     }
 
-    private void RaiseTrackChanged(Track? track)
+    private void RaiseTrackChanged(Track? track, bool force = false)
     {
         if (track is null)
         {
@@ -225,6 +307,7 @@ public class MediaWatcher : IDisposable
                         capturedLast = _lastTrack;
                         if (capturedLast is null) return;
                         _lastTrack = null;
+                        _lastPositionKey = null;
                         _nullDebounce?.Dispose();
                         _nullDebounce = null;
                     }
@@ -240,7 +323,9 @@ public class MediaWatcher : IDisposable
             _nullDebounce?.Dispose();
             _nullDebounce = null;
 
-            if (track.IsSameTrack(_lastTrack)) return;
+            // `force` bypasses the same-track suppression — used for a detected repeat
+            // play, where Title+Artist are unchanged but it's genuinely a fresh listen.
+            if (!force && track.IsSameTrack(_lastTrack)) return;
             _lastTrack = track;
         }
         TrackChanged?.Invoke(this, track);
@@ -282,6 +367,7 @@ public class MediaWatcher : IDisposable
         {
             _session.MediaPropertiesChanged -= OnMediaPropertiesChanged;
             _session.PlaybackInfoChanged -= OnPlaybackInfoChanged;
+            _session.TimelinePropertiesChanged -= OnTimelinePropertiesChanged;
         }
         if (_manager is not null)
         {

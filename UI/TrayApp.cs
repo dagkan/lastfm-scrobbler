@@ -1,3 +1,4 @@
+using System.Drawing.Drawing2D;
 using LastFmScrobbler.Core;
 using LastFmScrobbler.Data;
 using LastFmScrobbler.Models;
@@ -16,9 +17,13 @@ public class TrayApp : ApplicationContext
     private readonly ToolStripMenuItem _nowPlayingItem;
     private readonly ToolStripMenuItem _scrobbleCountItem;
     private readonly ToolStripMenuItem _copyNowPlayingItem;
+    private readonly ToolStripMenuItem _loveItem;
     private readonly ToolStripMenuItem _updateItem;
+    private readonly Icon _baseIcon;
+    private readonly System.Windows.Forms.Timer _idleTooltipTimer = new() { Interval = 60_000 };
     private int    _sessionScrobbles;
     private Track? _currentTrack;
+    private bool   _lastScrobbleFailed;
 
     public TrayApp(Database db, ScrobbleEngine engine, AppSettings settings)
     {
@@ -34,6 +39,9 @@ public class TrayApp : ApplicationContext
         _copyNowPlayingItem = new ToolStripMenuItem("Copy Now Playing\tCtrl+Alt+C");
         _copyNowPlayingItem.Click += (_, _) => CopyNowPlaying();
 
+        _loveItem = new ToolStripMenuItem("♡ Love\tCtrl+Alt+L") { Enabled = false };
+        _loveItem.Click += (_, _) => _mainForm.Invoke(() => _mainForm.ToggleLoveCurrentTrack());
+
         _updateItem = new ToolStripMenuItem("Check for Updates");
         _updateItem.Click += OnUpdateItemClicked;
 
@@ -42,6 +50,7 @@ public class TrayApp : ApplicationContext
         menu.Items.Add(_scrobbleCountItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(_copyNowPlayingItem);
+        menu.Items.Add(_loveItem);
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Monitor",  null, (_, _) => _mainForm.ShowMonitor());
         menu.Items.Add("Settings", null, (_, _) => _mainForm.ShowSettings());
@@ -49,16 +58,19 @@ public class TrayApp : ApplicationContext
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApp());
 
-        var appIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
+        _baseIcon = Icon.ExtractAssociatedIcon(Application.ExecutablePath) ?? SystemIcons.Application;
 
         _tray = new NotifyIcon
         {
-            Icon             = appIcon,
+            Icon             = _baseIcon,
             Text             = "Last.fm Scrobbler",
             Visible          = true,
             ContextMenuStrip = menu,
         };
         _tray.DoubleClick += (_, _) => _mainForm.ShowMonitor();
+
+        _idleTooltipTimer.Tick += (_, _) => { if (_currentTrack is null) UpdateIdleTooltip(); };
+        _idleTooltipTimer.Start();
 
         _engine.ConfirmBeforeScrobble = async track =>
         {
@@ -183,12 +195,14 @@ public class TrayApp : ApplicationContext
         { _tray.ContextMenuStrip.Invoke(() => OnNowPlayingChanged(sender, track)); return; }
 
         _currentTrack = track;
+        _loveItem.Enabled = track is not null && _engine.IsAuthenticated;
 
         if (track is null)
         {
             _nowPlayingItem.Text        = "Not playing";
             _copyNowPlayingItem.Enabled = false;
-            _tray.Text                  = "Last.fm Scrobbler";
+            SetTrayIconState(TrayState.Idle);
+            UpdateIdleTooltip();
         }
         else
         {
@@ -196,9 +210,10 @@ public class TrayApp : ApplicationContext
             _nowPlayingItem.Text        = Truncate(display, 60);
             _copyNowPlayingItem.Enabled = true;
             _tray.Text                  = Truncate($"♪ {display}", 63);
+            SetTrayIconState(TrayState.Playing);
 
             if (_settings.ShowNowPlayingNotification)
-                _tray.ShowBalloonTip(2000, "Now Playing", display, ToolTipIcon.None);
+                ShowNowPlayingToast(track, display);
         }
     }
 
@@ -207,6 +222,9 @@ public class TrayApp : ApplicationContext
         if (_tray.ContextMenuStrip!.InvokeRequired)
         { _tray.ContextMenuStrip.Invoke(() => OnTrackScrobbled(sender, e)); return; }
 
+        _lastScrobbleFailed = !e.success;
+        SetTrayIconState(e.success ? TrayState.Playing : TrayState.Error);
+
         if (e.success)
         {
             _sessionScrobbles++;
@@ -214,16 +232,113 @@ public class TrayApp : ApplicationContext
         }
     }
 
+    // ── Tray icon state badge ────────────────────────────────────────────────
+
+    private enum TrayState { Idle, Playing, Error }
+    private Icon? _stateIcon;
+
+    private void SetTrayIconState(TrayState state)
+    {
+        var color = state switch
+        {
+            TrayState.Playing => Color.FromArgb(70, 200, 70),
+            TrayState.Error    => Color.FromArgb(220, 60, 60),
+            _                  => (Color?)null, // Idle — no badge, just the plain icon
+        };
+
+        var old = _stateIcon;
+        _stateIcon = color is null ? null : BuildBadgedIcon(_baseIcon, color.Value);
+        _tray.Icon = _stateIcon ?? _baseIcon;
+        if (old is not null) { NativeMethods.DestroyIcon(old.Handle); old.Dispose(); }
+    }
+
+    private static Icon BuildBadgedIcon(Icon baseIcon, Color badgeColor)
+    {
+        using var bmp = baseIcon.ToBitmap();
+        using (var g = Graphics.FromImage(bmp))
+        {
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            int d = Math.Max(4, bmp.Width / 3);
+            var rect = new Rectangle(bmp.Width - d, bmp.Height - d, d, d);
+            using var brush = new SolidBrush(badgeColor);
+            using var pen = new Pen(Color.FromArgb(200, 0, 0, 0), 1);
+            g.FillEllipse(brush, rect);
+            g.DrawEllipse(pen, rect);
+        }
+        var hIcon = bmp.GetHicon();
+        return Icon.FromHandle(hIcon);
+    }
+
+    private void UpdateIdleTooltip()
+    {
+        var last = _db.GetLastSuccessfulScrobble();
+        _tray.Text = last is null
+            ? "Last.fm Scrobbler"
+            : Truncate($"Last.fm Scrobbler — last: {FormatRelative(DateTime.UtcNow - last.ScrobbledAt.ToUniversalTime())}", 63);
+    }
+
+    private static string FormatRelative(TimeSpan span)
+    {
+        if (span.TotalMinutes < 1) return "just now";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes}m ago";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours}h ago";
+        return $"{(int)span.TotalDays}d ago";
+    }
+
+    // ── Toast notification (best-effort; falls back to the classic balloon tip) ─
+
+    private void ShowNowPlayingToast(Track track, string display)
+    {
+        try
+        {
+            var thumbPath = SaveThumbnailToTemp();
+            var builder = new CommunityToolkit.WinUI.Notifications.ToastContentBuilder()
+                .AddText("Now Playing")
+                .AddText(display);
+            if (thumbPath is not null)
+                builder.AddInlineImage(new Uri(thumbPath));
+            builder.Show();
+        }
+        catch
+        {
+            // Toast requires AUMID/registration plumbing that can be flaky on some
+            // Windows configurations — silently fall back to the classic balloon tip.
+            _tray.ShowBalloonTip(2000, "Now Playing", display, ToolTipIcon.None);
+        }
+    }
+
+    private string? SaveThumbnailToTemp()
+    {
+        try
+        {
+            var img = _engine.GetCurrentThumbnailAsync().GetAwaiter().GetResult();
+            if (img is null) return null;
+            var path = Path.Combine(Path.GetTempPath(), "lastfm_scrobbler_now_playing.png");
+            img.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+            return path;
+        }
+        catch { return null; }
+    }
+
     private void ExitApp()
     {
+        _idleTooltipTimer.Stop();
+        _idleTooltipTimer.Dispose();
         _hotkeys.Dispose();
         _tray.Visible = false;
         _mainForm.Dispose();
         _engine.Dispose();
         _db.Dispose();
+        if (_stateIcon is not null) { NativeMethods.DestroyIcon(_stateIcon.Handle); _stateIcon.Dispose(); }
         Application.Exit();
     }
 
     private static string Truncate(string s, int max) =>
         s.Length <= max ? s : s[..(max - 1)] + "…";
+
+    private static class NativeMethods
+    {
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        public static extern bool DestroyIcon(IntPtr handle);
+    }
 }

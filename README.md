@@ -2,9 +2,9 @@
 
 > Automatic Last.fm scrobbling for the **Apple Music Windows app** — because the official Last.fm app doesn't support it.
 
-[![Release](https://img.shields.io/github/v/release/SpaceChildDev/lastfm-scrobbler)](https://github.com/SpaceChildDev/lastfm-scrobbler/releases)
+[![Release](https://img.shields.io/github/v/release/daiquiridev/lastfm-scrobbler)](https://github.com/daiquiridev/lastfm-scrobbler/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)](https://github.com/SpaceChildDev/lastfm-scrobbler)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue)](https://github.com/daiquiridev/lastfm-scrobbler)
 
 ---
 
@@ -63,7 +63,7 @@ This app fills that gap using the **Windows System Media Transport Controls (SMT
 
 ### Option A — Portable (recommended)
 
-1. Go to the [**Releases**](https://github.com/SpaceChildDev/lastfm-scrobbler/releases) page
+1. Go to the [**Releases**](https://github.com/daiquiridev/lastfm-scrobbler/releases) page
 2. Download `LastFmScrobbler.exe`
 3. Run it — no installation needed
 4. The app stores its data in the same folder as the exe
@@ -129,7 +129,7 @@ By default, a track is scrobbled after **50% of its duration** OR **240 seconds*
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8)
 
 ```bash
-git clone https://github.com/SpaceChildDev/lastfm-scrobbler.git
+git clone https://github.com/daiquiridev/lastfm-scrobbler.git
 cd lastfm-scrobbler
 
 # Build

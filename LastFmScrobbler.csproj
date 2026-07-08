@@ -10,9 +10,9 @@
     <AssemblyName>LastFmScrobbler</AssemblyName>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2.17</Version>
-    <AssemblyVersion>1.2.17.0</AssemblyVersion>
-    <FileVersion>1.2.17.0</FileVersion>
+    <Version>1.2.18</Version>
+    <AssemblyVersion>1.2.18.0</AssemblyVersion>
+    <FileVersion>1.2.18.0</FileVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Last.fm Scrobbler</Product>
     <Company>Open Source</Company>
@@ -35,10 +35,12 @@
 
   <PropertyGroup>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="CommunityToolkit.WinUI.Notifications" Version="7.1.2" />
   </ItemGroup>
 
 </Project>

@@ -23,6 +23,7 @@ var dbPath = Path.Combine(dataDir, "lastfm_scrobbler.db");
 using var db = new Database(dbPath);
 var settings = db.LoadSettings();
 
+FileLogger.Configure(dataDir, settings.EnableDiagnosticLog);
 Loc.SetLanguage(settings.Language);
 
 using var engine = new ScrobbleEngine(db, settings);

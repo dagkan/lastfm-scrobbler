@@ -18,6 +18,10 @@ public class TrackNormalizer
 
         foreach (var rule in _rules)
         {
+            if (!string.IsNullOrEmpty(rule.AppFilter) &&
+                !(track.SourceApp?.Contains(rule.AppFilter, StringComparison.OrdinalIgnoreCase) ?? false))
+                continue;
+
             switch (rule.Field)
             {
                 case RuleField.Title:

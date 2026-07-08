@@ -8,7 +8,7 @@
 
 #define AppName      "Last.fm Scrobbler"
 #define AppPublisher "dagkanbayramoglu"
-#define AppURL       "https://github.com/dagkanbayramoglu/lastfm-scrobbler-apple-music-windows"
+#define AppURL       "https://github.com/daiquiridev/lastfm-scrobbler"
 #define AppExeName   "LastFmScrobbler.exe"
 
 [Setup]
@@ -47,7 +47,6 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon";  Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
-Name: "startupentry"; Description: "Start with Windows";      GroupDescription: "System integration:";  Flags: unchecked
 
 [Files]
 Source: "..\portable\LastFmScrobbler.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -56,10 +55,15 @@ Source: "..\portable\LastFmScrobbler.exe"; DestDir: "{app}"; Flags: ignoreversio
 Name: "{group}\{#AppName}";              Filename: "{app}\{#AppExeName}"
 Name: "{group}\Uninstall {#AppName}";    Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}";        Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
-Name: "{autostartup}\{#AppName}";        Filename: "{app}\{#AppExeName}"; Tasks: startupentry
 
 [Run]
 ; Interactive install: show "Launch app" checkbox at the end of the wizard.
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 ; Silent / auto-update: always launch the new exe so the user doesn't have to.
 Filename: "{app}\{#AppExeName}"; Flags: nowait runasoriginaluser; Check: WizardSilent
+
+[InstallDelete]
+; Older versions offered a separate installer-managed "Start with Windows" task that
+; created this shortcut. The app's own Settings checkbox is now the single source of
+; truth (it manages the HKCU Run key directly), so remove any leftover from an upgrade.
+Type: files; Name: "{autostartup}\{#AppName}.lnk"

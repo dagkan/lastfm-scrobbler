@@ -4,12 +4,19 @@ using Newtonsoft.Json.Linq;
 
 namespace LastFmScrobbler.Core;
 
+/// <summary>Thrown when the Last.fm API (via the proxy worker) returns an {error, message} payload.</summary>
+public class LastFmApiException : Exception
+{
+    public int Code { get; }
+    public LastFmApiException(int code, string message) : base($"Last.fm error {code}: {message}") => Code = code;
+}
+
 public class LastFmClient
 {
     // Update this constant after deploying the Cloudflare Worker.
     private const string WorkerUrl = "https://proxy.lastfm.spacechild.dev/";
 
-    private readonly HttpClient _http = new();
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private string? _sessionKey;
 
     public bool IsAuthenticated => !string.IsNullOrEmpty(_sessionKey);
@@ -270,7 +277,7 @@ public class LastFmClient
 
     // ── Friends ──────────────────────────────────────────────────────────────
 
-    public async Task<(string name, string artist, string track, bool nowPlaying, string imageUrl)[]> GetFriendsAsync(string username)
+    public async Task<(string name, string artist, string track, bool nowPlaying, string imageUrl, DateTime? playedAt)[]> GetFriendsAsync(string username)
     {
         try
         {
@@ -293,7 +300,11 @@ public class LastFmClient
                 var imageUrl = u["image"]?
                     .LastOrDefault(i => !string.IsNullOrEmpty(i["#text"]?.ToString()))?
                     ["#text"]?.ToString() ?? "";
-                return (name, artist, track, np, imageUrl);
+                // "date" is absent while nowplaying=true; otherwise it carries a unix-seconds "uts".
+                DateTime? playedAt = long.TryParse(rt?["date"]?["uts"]?.ToString(), out var uts)
+                    ? DateTimeOffset.FromUnixTimeSeconds(uts).UtcDateTime
+                    : null;
+                return (name, artist, track, np, imageUrl, playedAt);
             }).Where(x => x.name.Length > 0).ToArray();
         }
         catch { return []; }
@@ -313,7 +324,10 @@ public class LastFmClient
         var obj      = JObject.Parse(json);
 
         if (obj["error"] is JToken err)
-            throw new Exception($"Last.fm error {err}: {obj["message"]}");
+        {
+            int.TryParse(err.ToString(), out var code);
+            throw new LastFmApiException(code, obj["message"]?.ToString() ?? "");
+        }
 
         return obj;
     }
