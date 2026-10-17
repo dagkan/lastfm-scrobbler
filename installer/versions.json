@@ -1,98 +1,123 @@
 [
-  {
-    "version": "1.2.19",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.19.exe",
-    "sha256": "21f09ca994fc0e4acd255b419013eb3545c9dac0fa8464765c8a244bdef1b37c",
-    "date": "2026-07-08",
-    "notes": [
-      "Fix: Statistics page crashed with a NULL-data error (1.2.18 regression) — local-time day calculations no longer rely on a SQLite date modifier that failed on real timestamp data",
-      "Fix: Settings page couldn't be scrolled down to reach the Advanced section"
-    ]
-  },
-  {
-    "version": "1.2.18",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.18.exe",
-    "sha256": "20167516e92fd06a8f314aec1f7a1d395d037e8d08b6e51932e8ae6a58eee212",
-    "date": "2026-07-08",
-    "notes": [
-      "Fix: repeat plays of the same track now scrobble each time (duplicate-window bug)",
-      "Fix: Start with Windows checkbox reflects real state and fully disables autostart",
-      "Pause/seek-aware scrobble timing (no more premature or skipped scrobbles)",
-      "Tray icon reflects state, tray tooltip shows last scrobble time",
-      "Love from tray menu, searchable history, per-player normalization rules",
-      "Optional diagnostic log, artist exclude list, Friends grid with cached avatars",
-      "Smaller install size"
-    ]
-  },
-  {
-    "version": "1.2.16",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.16.exe",
-    "sha256": "e64e769d7a447b398ab5ee4d2a9793081e3f1f0c1a952ec25501b6dc5cc682aa",
-    "date": "2026-05-12",
-    "notes": [
-      "History redesigned as inbox-style list",
-      "Friends page now shows profile photos",
-      "Donate link updated",
-      "Fix: Version History always opens at top"
-    ]
-  },
-  {
-    "version": "1.2.15",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.15.exe",
-    "sha256": "ac60f630be39b6e84c9ae75e06e5a557c28d121a10990793f8ec33ad19979a76",
-    "date": "2026-05-12",
-    "notes": "Fix: Version History always opens at the top"
-  },
-  {
-    "version": "1.2.14",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.14.exe",
-    "sha256": "366d23bfe42ae2492b66a9ba7c6eacfd3490b25df1fae3d7d166f973ee5c9a58",
-    "date": "2026-05-12",
-    "notes": [
-      "Fix: Version History top entry no longer cut off",
-      "Fix: Changelog content no longer flush against left edge"
-    ]
-  },
-  {
-    "version": "1.2.13",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.13.exe",
-    "sha256": "5b055094f2db2d6eca60d0f40254ab028a3f452fef9400e96a6215f8ec3d452b",
-    "date": "2026-05-12",
-    "notes": [
-      "Monitor shows last played track when idle",
-      "Version History redesigned as a clean changelog",
-      "Log no longer shows duplicate Now playing entries",
-      "Fix: Check for Updates dialog no longer gets stuck hidden"
-    ]
-  },
-  {
-    "version": "1.2.12",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.12.exe",
-    "sha256": "41989ddf2fbfe50d0b70238863e8691882b5ab77266175ed5bd377db0e77b080",
-    "date": "2026-05-12",
-    "notes": [
-      "Monitor shows last played track when idle",
-      "Version History redesigned as a clean changelog",
-      "Log no longer shows duplicate Now playing entries",
-      "Fix: Check for Updates dialog no longer gets stuck hidden"
-    ]
-  },
-  {
-    "version": "1.2.11",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.11.exe",
-    "sha256": "8a9486f5f1c65bf63d607bb531cab25b4e273cfbf28f47a4eb79f2127d782c56",
-    "date": "2026-05-10"
-  },
-  {
-    "version": "1.2.10",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.10.exe",
-    "sha256": "e392de3d7e15d464a8728054012478d12f995ceb5b5119f978fce5edfc82b373",
-    "date": "2026-05-10"
-  },
-  {
-    "version": "1.2.9",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.9.exe",
-    "sha256": "31ecdc4ffd5101e29b4839749e3ff7167baebdf8c63ff3de246a79c3d4b7fb4c",
-    "date": "2026-05-10"
-  }
+  [
+    {
+      "version": "1.2.22",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.22.exe",
+      "sha256": "47a4acd85d860dda8d344d227ad28382c38c3194e36741e3b2e3079df7874bf0",
+      "date": "2026-10-17",
+      "notes": [
+        "Title-bar and sidebar icons redrawn as crisp vector icons",
+        "About page: GitHub, Sponsor and Buy me a coffee buttons, project moved to github.com/dagkan",
+        "Release notes are shown in the update dialog and Version History loads again",
+        "Rounded window corners on Windows 11",
+        "Global hotkeys are now opt-in (Settings > Advanced) — Ctrl+Alt is AltGr on many keyboards",
+        "Anonymous usage statistics and crash reports (opt-out in Settings > Advanced)",
+        "Fix: crash loop in the progress bar after the system clock changed",
+        "Fix: Copy Now Playing and dialogs failed on some systems (STA thread)",
+        "Fix: layout clipping at the minimum window size",
+        "Fix: manual update check re-reads the manifest"
+      ]
+    },
+    {
+      "version": "1.2.21",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.21.exe",
+      "sha256": "7ef3a57fbc8030abfa9a05ba6c4294ff0d6d28fd8f3609e4da83253c0be3cece",
+      "date": "2026-07-09",
+      "notes": [
+        "Sidebar icons redrawn as vector icons instead of unicode glyphs",
+        "Album art now fills the Monitor card edge-to-edge, no border",
+        "Consistent corner radius on all buttons",
+        "Minor left-alignment fixes on About and page headings"
+      ]
+    },
+    {
+      "version": "1.2.20",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.20.exe",
+      "sha256": "b1e0ec8c337b356bbbf4aeca16ef0da7bf3f9ee92db698262cff725f18156194",
+      "date": "2026-07-09",
+      "notes": [
+        "Anonymous, opt-out usage stats and crash reporting (no track/artist/username data ever sent) â€” toggle in Scrobbling > Advanced"
+      ]
+    },
+    {
+      "version": "1.2.19",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.19.exe",
+      "sha256": "21f09ca994fc0e4acd255b419013eb3545c9dac0fa8464765c8a244bdef1b37c",
+      "date": "2026-07-08",
+      "notes": [
+        "Fix: Statistics page crashed with a NULL-data error (1.2.18 regression) â€” local-time day calculations no longer rely on a SQLite date modifier that failed on real timestamp data",
+        "Fix: Settings page couldn't be scrolled down to reach the Advanced section"
+      ]
+    },
+    {
+      "version": "1.2.18",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.18.exe",
+      "sha256": "20167516e92fd06a8f314aec1f7a1d395d037e8d08b6e51932e8ae6a58eee212",
+      "date": "2026-07-08",
+      "notes": [
+        "Fix: repeat plays of the same track now scrobble each time (duplicate-window bug)",
+        "Fix: Start with Windows checkbox reflects real state and fully disables autostart",
+        "Pause/seek-aware scrobble timing (no more premature or skipped scrobbles)",
+        "Tray icon reflects state, tray tooltip shows last scrobble time",
+        "Love from tray menu, searchable history, per-player normalization rules",
+        "Optional diagnostic log, artist exclude list, Friends grid with cached avatars",
+        "Smaller install size"
+      ]
+    },
+    {
+      "version": "1.2.16",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.16.exe",
+      "sha256": "e64e769d7a447b398ab5ee4d2a9793081e3f1f0c1a952ec25501b6dc5cc682aa",
+      "date": "2026-05-12",
+      "notes": [
+        "History redesigned as inbox-style list",
+        "Friends page now shows profile photos",
+        "Donate link updated",
+        "Fix: Version History always opens at top"
+      ]
+    },
+    {
+      "version": "1.2.15",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.15.exe",
+      "sha256": "ac60f630be39b6e84c9ae75e06e5a557c28d121a10990793f8ec33ad19979a76",
+      "date": "2026-05-12",
+      "notes": [
+        "Fix: Version History always opens at the top"
+      ]
+    },
+    {
+      "version": "1.2.14",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.14.exe",
+      "sha256": "366d23bfe42ae2492b66a9ba7c6eacfd3490b25df1fae3d7d166f973ee5c9a58",
+      "date": "2026-05-12",
+      "notes": [
+        "Fix: Version History top entry no longer cut off",
+        "Fix: Changelog content no longer flush against left edge"
+      ]
+    },
+    {
+      "version": "1.2.13",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.13.exe",
+      "sha256": "5b055094f2db2d6eca60d0f40254ab028a3f452fef9400e96a6215f8ec3d452b",
+      "date": "2026-05-12",
+      "notes": [
+        "Monitor shows last played track when idle",
+        "Version History redesigned as a clean changelog",
+        "Log no longer shows duplicate Now playing entries",
+        "Fix: Check for Updates dialog no longer gets stuck hidden"
+      ]
+    },
+    {
+      "version": "1.2.12",
+      "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.12.exe",
+      "sha256": "41989ddf2fbfe50d0b70238863e8691882b5ab77266175ed5bd377db0e77b080",
+      "date": "2026-05-12",
+      "notes": [
+        "Monitor shows last played track when idle",
+        "Version History redesigned as a clean changelog",
+        "Log no longer shows duplicate Now playing entries",
+        "Fix: Check for Updates dialog no longer gets stuck hidden"
+      ]
+    }
+  ]
 ]
