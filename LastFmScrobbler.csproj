@@ -21,6 +21,12 @@
     <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
+  <!-- dotnet publish -p:Beta=true → side-by-side beta build (see Core/AppChannel.cs) -->
+  <PropertyGroup Condition="'$(Beta)' == 'true'">
+    <DefineConstants>$(DefineConstants);BETA</DefineConstants>
+    <Product>Last.fm Scrobbler Beta</Product>
+  </PropertyGroup>
+
   <ItemGroup>
     <EmbeddedResource Include="app.ico" />
     <EmbeddedResource Include="assets\branding\mark-192.png">

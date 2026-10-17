@@ -23,11 +23,20 @@ param(
     [string]$Notes       = "",   # semicolon-separated: "note1;note2;note3"
     [string]$BucketName  = "lastfm-releases",
     [string]$R2PublicUrl = "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev",
-    [switch]$SkipUpload           # build + sign the installer locally, don't touch R2 / versions.json
+    [switch]$SkipUpload,          # build + sign the installer locally, don't touch R2 / versions.json
+    [switch]$Beta                 # side-by-side beta channel: -p:Beta=true, ISCC /DBeta, R2 prefix lastfm-scrobbler/beta
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+
+# Channel-dependent names (see Core/AppChannel.cs + setup.iss)
+$R2Prefix     = if ($Beta) { "lastfm-scrobbler/beta" }      else { "lastfm-scrobbler" }
+$SetupBase    = if ($Beta) { "LastFmScrobbler-Setup-Beta" } else { "LastFmScrobbler-Setup" }
+$VersionsFile = if ($Beta) { "versions-beta.json" }         else { "versions.json" }
+$PublishProps = if ($Beta) { @("-p:Beta=true") }            else { @() }
+$IsccDefs     = if ($Beta) { @("/DBeta") }                  else { @() }
+if ($Beta) { Write-Host "Channel: BETA" -ForegroundColor Yellow }
 
 # ── 1. Resolve version ───────────────────────────────────────────────────────
 
@@ -41,14 +50,17 @@ Write-Host "Version: $Version" -ForegroundColor Cyan
 # ── 2. Publish single-file executable ────────────────────────────────────────
 
 Write-Host "Publishing…" -ForegroundColor Cyan
-dotnet publish "$PSScriptRoot\..\LastFmScrobbler.csproj" `
-    -r win-x64 `
-    --self-contained true `
-    -p:PublishSingleFile=true `
-    -p:Version=$Version `
-    -c Release `
-    -o "$PSScriptRoot\..\portable\" `
-    --nologo
+$publishArgs = @(
+    "publish", "$PSScriptRoot\..\LastFmScrobbler.csproj",
+    "-r", "win-x64",
+    "--self-contained", "true",
+    "-p:PublishSingleFile=true",
+    "-p:Version=$Version",
+    "-c", "Release",
+    "-o", "$PSScriptRoot\..\portable\",
+    "--nologo"
+) + $PublishProps
+& dotnet @publishArgs
 
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
@@ -65,12 +77,13 @@ $iscc = @(
 if (-not $iscc) { throw "Inno Setup not found — download from https://jrsoftware.org/isinfo.php" }
 
 Write-Host "Compiling installer…" -ForegroundColor Cyan
-& $iscc /DAppVersion=$Version "$PSScriptRoot\setup.iss"
+$isccArgs = @("/DAppVersion=$Version") + $IsccDefs + @("$PSScriptRoot\setup.iss")
+& $iscc @isccArgs
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
 # ── 4. SHA-256 ───────────────────────────────────────────────────────────────
 
-$installer   = "$PSScriptRoot\LastFmScrobbler-Setup-$Version.exe"
+$installer   = "$PSScriptRoot\$SetupBase-$Version.exe"
 if (-not (Test-Path $installer)) { throw "Installer not found: $installer" }
 
 $sha256 = (Get-FileHash $installer -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -78,10 +91,10 @@ Write-Host "SHA-256: $sha256" -ForegroundColor Green
 
 # ── 5. Write latest.json ─────────────────────────────────────────────────────
 
-$installerFilename = "LastFmScrobbler-Setup-$Version.exe"
+$installerFilename = "$SetupBase-$Version.exe"
 $manifest = [ordered]@{
     version = $Version
-    url     = "$R2PublicUrl/lastfm-scrobbler/$installerFilename"
+    url     = "$R2PublicUrl/$R2Prefix/$installerFilename"
     sha256  = $sha256
 } | ConvertTo-Json
 $manifest | Set-Content "$PSScriptRoot\latest.json" -Encoding utf8NoBOM
@@ -100,18 +113,18 @@ $workerDir = "$PSScriptRoot\..\worker"
 if (-not (Test-Path "$workerDir\node_modules\.bin\wrangler.cmd")) { throw "wrangler not found. Run: npm install (in worker/)" }
 
 Write-Host "Uploading installer to R2…" -ForegroundColor Cyan
-cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/lastfm-scrobbler/$installerFilename --file `"$PSScriptRoot\$installerFilename`" --content-type application/octet-stream --remote 2>&1"
+cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/$R2Prefix/$installerFilename --file `"$PSScriptRoot\$installerFilename`" --content-type application/octet-stream --remote 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "R2 upload (installer) failed" }
 
 Write-Host "Uploading latest.json to R2…" -ForegroundColor Cyan
-cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/lastfm-scrobbler/latest.json --file `"$PSScriptRoot\latest.json`" --content-type application/json --cache-control no-cache,no-store --remote 2>&1"
+cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/$R2Prefix/latest.json --file `"$PSScriptRoot\latest.json`" --content-type application/json --cache-control no-cache,no-store --remote 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "R2 upload (manifest) failed" }
 
 # ── 7. Update versions.json ──────────────────────────────────────────────────
 
 Write-Host "Updating versions.json…" -ForegroundColor Cyan
 
-$versionsJsonPath = "$PSScriptRoot\versions.json"
+$versionsJsonPath = "$PSScriptRoot\$VersionsFile"
 
 # Source-of-truth precedence: local file (committed to repo) → R2 → empty.
 # Local file is committed so history survives across machines/network failures.
@@ -127,7 +140,7 @@ if (Test-Path $versionsJsonPath) {
 }
 if ($existing.Count -eq 0) {
     try {
-        $existing = @((Invoke-WebRequest -Uri "$R2PublicUrl/lastfm-scrobbler/versions.json" -UseBasicParsing -ErrorAction Stop).Content | ConvertFrom-Json)
+        $existing = @((Invoke-WebRequest -Uri "$R2PublicUrl/$R2Prefix/versions.json" -UseBasicParsing -ErrorAction Stop).Content | ConvertFrom-Json)
         Write-Host "  Loaded $($existing.Count) entries from R2." -ForegroundColor Gray
     } catch {
         Write-Host "  No prior versions.json found, starting fresh." -ForegroundColor Yellow
@@ -138,7 +151,7 @@ if ($existing.Count -eq 0) {
 $notesArray = if ($Notes) { @($Notes -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ }) } else { @() }
 $newEntry = [ordered]@{
     version = $Version
-    url     = "$R2PublicUrl/lastfm-scrobbler/$installerFilename"
+    url     = "$R2PublicUrl/$R2Prefix/$installerFilename"
     sha256  = $sha256
     date    = (Get-Date -Format "yyyy-MM-dd")
     # Wrapped in a PSObject[] so ConvertTo-Json keeps a single note as ["..."]
@@ -163,11 +176,11 @@ $json = ConvertTo-Json -InputObject $versions -Depth 10 -AsArray
 $json | Set-Content $versionsJsonPath -Encoding utf8NoBOM
 Write-Host "versions.json updated ($($versions.Count) entries)." -ForegroundColor Green
 
-cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/lastfm-scrobbler/versions.json --file `"$versionsJsonPath`" --content-type application/json --cache-control no-cache,no-store --remote 2>&1"
+cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/$R2Prefix/versions.json --file `"$versionsJsonPath`" --content-type application/json --cache-control no-cache,no-store --remote 2>&1"
 if ($LASTEXITCODE -ne 0) { throw "R2 upload (versions.json) failed" }
 
 Write-Host ""
 Write-Host "✅ v$Version released and uploaded." -ForegroundColor Green
-Write-Host "   Manifest : $R2PublicUrl/lastfm-scrobbler/latest.json" -ForegroundColor Gray
-Write-Host "   Versions : $R2PublicUrl/lastfm-scrobbler/versions.json" -ForegroundColor Gray
-Write-Host "   Installer: $R2PublicUrl/lastfm-scrobbler/$installerFilename" -ForegroundColor Gray
+Write-Host "   Manifest : $R2PublicUrl/$R2Prefix/latest.json" -ForegroundColor Gray
+Write-Host "   Versions : $R2PublicUrl/$R2Prefix/versions.json" -ForegroundColor Gray
+Write-Host "   Installer: $R2PublicUrl/$R2Prefix/$installerFilename" -ForegroundColor Gray

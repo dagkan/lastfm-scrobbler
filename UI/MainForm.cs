@@ -169,7 +169,7 @@ public class MainForm : Form
 
     private void InitializeComponent()
     {
-        Text            = "Last.fm Scrobbler";
+        Text            = AppChannel.DisplayName;
         Size            = new Size(1100, 680);
         MinimumSize     = new Size(900, 560);
         StartPosition   = FormStartPosition.CenterScreen;
@@ -810,7 +810,7 @@ public class MainForm : Form
 
         var versionLabel = new Label
         {
-            Text      = $"v{Core.UpdateChecker.DisplayVersion}",
+            Text      = $"v{Core.UpdateChecker.DisplayVersion}{AppChannel.Suffix}",
             Location  = new Point(89, 52),
             Size      = new Size(72, 22),
             Font      = FontManager.Regular(8.5f),
@@ -2184,7 +2184,7 @@ public class MainForm : Form
         try
         {
             using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", writable: false);
-            if (key?.GetValue("LastFmScrobbler") is not null) return true;
+            if (key?.GetValue(AppChannel.RunKeyName) is not null) return true;
         }
         catch { }
         return File.Exists(StartupShortcutPath);
@@ -2199,8 +2199,8 @@ public class MainForm : Form
             using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"SOFTWARE\Microsoft\Windows\CurrentVersion\Run", writable: true);
             if (key is not null)
             {
-                if (enable) key.SetValue("LastFmScrobbler", $"\"{exe}\"");
-                else        key.DeleteValue("LastFmScrobbler", throwOnMissingValue: false);
+                if (enable) key.SetValue(AppChannel.RunKeyName, $"\"{exe}\"");
+                else        key.DeleteValue(AppChannel.RunKeyName, throwOnMissingValue: false);
             }
         }
         catch { }
@@ -2230,7 +2230,7 @@ public class MainForm : Form
         var logoPane = new Panel { Dock = DockStyle.Left, Width = 200, BackColor = CSidebar };
         var logoLbl  = new Label
         {
-            Text = "Last.fm Scrobbler", Dock = DockStyle.Fill, ForeColor = _cAccent,
+            Text = AppChannel.IsBeta ? "Last.fm Scrobbler  β" : "Last.fm Scrobbler", Dock = DockStyle.Fill, ForeColor = _cAccent,
             Font = FontManager.Bold(11.5f), TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(20, 0, 0, 0), BackColor = Color.Transparent,
         };

@@ -124,7 +124,7 @@ public static class Telemetry
         var dict = new Dictionary<string, object?>
         {
             ["installId"]  = _settings?.InstallId,
-            ["appVersion"] = UpdateChecker.DisplayVersion,
+            ["appVersion"] = UpdateChecker.DisplayVersion + AppChannel.Suffix,
         };
         foreach (var p in body.GetType().GetProperties())
             dict[p.Name] = p.GetValue(body);

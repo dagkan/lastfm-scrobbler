@@ -63,7 +63,7 @@ public class TrayApp : ApplicationContext
         _tray = new NotifyIcon
         {
             Icon             = _baseIcon,
-            Text             = "Last.fm Scrobbler",
+            Text             = AppChannel.DisplayName,
             Visible          = true,
             ContextMenuStrip = menu,
         };
@@ -285,8 +285,8 @@ public class TrayApp : ApplicationContext
     {
         var last = _db.GetLastSuccessfulScrobble();
         _tray.Text = last is null
-            ? "Last.fm Scrobbler"
-            : Truncate($"Last.fm Scrobbler — last: {FormatRelative(DateTime.UtcNow - last.ScrobbledAt.ToUniversalTime())}", 63);
+            ? AppChannel.DisplayName
+            : Truncate($"{AppChannel.DisplayName} — last: {FormatRelative(DateTime.UtcNow - last.ScrobbledAt.ToUniversalTime())}", 63);
     }
 
     private static string FormatRelative(TimeSpan span)

@@ -69,3 +69,4 @@ coverage/
 macos/build/
 macos/**/xcuserdata/
 macos/*.dmg
+installer/versions-beta.json

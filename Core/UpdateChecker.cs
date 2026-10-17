@@ -14,8 +14,8 @@ public class UpdateChecker
     private const string R2Base    = "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev";
     private const string ProxyBase = "https://proxy.lastfm.spacechild.dev";
 
-    public const string ManifestUrl  = ProxyBase + "/lastfm-scrobbler/latest.json";
-    public const string VersionsUrl  = ProxyBase + "/lastfm-scrobbler/versions.json";
+    public const string ManifestUrl  = ProxyBase + AppChannel.UpdatePrefix + "/latest.json";
+    public const string VersionsUrl  = ProxyBase + AppChannel.UpdatePrefix + "/versions.json";
 
     private static string RewriteToProxy(string url) =>
         url.StartsWith(R2Base) ? ProxyBase + url[R2Base.Length..] : url;
@@ -85,7 +85,7 @@ public class UpdateChecker
     {
         var dest = Path.Combine(
             Path.GetTempPath(),
-            $"LastFmScrobbler-Setup-{info.Version}.exe");
+            $"LastFmScrobbler-Setup{(AppChannel.IsBeta ? "-Beta" : "")}-{info.Version}.exe");
 
         using var response = await _http.GetAsync(RewriteToProxy(info.Url), HttpCompletionOption.ResponseHeadersRead);
         response.EnsureSuccessStatusCode();

@@ -18,10 +18,10 @@ internal static class Program
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
 
         // Prevent multiple instances
-        using var mutex = new System.Threading.Mutex(true, "LastFmScrobblerSingleInstance", out bool firstInstance);
+        using var mutex = new System.Threading.Mutex(true, AppChannel.MutexName, out bool firstInstance);
         if (!firstInstance)
         {
-            MessageBox.Show("Last.fm Scrobbler is already running.\nCheck the system tray.",
+            MessageBox.Show($"{AppChannel.DisplayName} is already running.\nCheck the system tray.",
                 "Already running", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
@@ -61,7 +61,7 @@ internal static class Program
             // Fall back to AppData (e.g., if installed in Program Files)
             var appData = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "LastFmScrobbler");
+                AppChannel.DataDirName);
             Directory.CreateDirectory(appData);
             return appData;
         }

@@ -6,13 +6,27 @@
   #define AppVersion "1.1.100"
 #endif
 
-#define AppName      "Last.fm Scrobbler"
+; Beta channel (ISCC /DBeta): separate AppId, folder and name so it installs
+; side-by-side with the release build. Pairs with -p:Beta=true in the csproj.
+#ifdef Beta
+  #define AppName      "Last.fm Scrobbler Beta"
+  #define AppIdGuid    "{C7D3E0F2-8A4B-4C1D-A2E3-7F6B1C2D3E4F}"
+  #define InstallDir   "LastFmScrobblerBeta"
+  #define OutputBase   "LastFmScrobbler-Setup-Beta"
+  #define OldStartup   "Last.fm Scrobbler Beta.lnk"
+#else
+  #define AppName      "Last.fm Scrobbler"
+  #define AppIdGuid    "{B4F2A9D1-7E3C-4A8F-9B2D-6C5E0A1F3D82}"
+  #define InstallDir   "LastFmScrobbler"
+  #define OutputBase   "LastFmScrobbler-Setup"
+  #define OldStartup   "Last.fm Scrobbler.lnk"
+#endif
 #define AppPublisher "Dagkan Bayramoglu"
 #define AppURL       "https://github.com/dagkan/lastfm-scrobbler"
 #define AppExeName   "LastFmScrobbler.exe"
 
 [Setup]
-AppId={{B4F2A9D1-7E3C-4A8F-9B2D-6C5E0A1F3D82}
+AppId={{#AppIdGuid}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppVerName={#AppName} {#AppVersion}
@@ -20,12 +34,12 @@ AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
 AppSupportURL={#AppURL}/issues
 AppUpdatesURL={#AppURL}/releases
-DefaultDirName={autopf}\LastFmScrobbler
+DefaultDirName={autopf}\{#InstallDir}
 DefaultGroupName={#AppName}
 AllowNoIcons=yes
 LicenseFile=..\LICENSE
 OutputDir=.
-OutputBaseFilename=LastFmScrobbler-Setup-{#AppVersion}
+OutputBaseFilename={#OutputBase}-{#AppVersion}
 SetupIconFile=..\app.ico
 Compression=lzma2/ultra64
 SolidCompression=yes
@@ -66,4 +80,4 @@ Filename: "{app}\{#AppExeName}"; Flags: nowait runasoriginaluser; Check: WizardS
 ; Older versions offered a separate installer-managed "Start with Windows" task that
 ; created this shortcut. The app's own Settings checkbox is now the single source of
 ; truth (it manages the HKCU Run key directly), so remove any leftover from an upgrade.
-Type: files; Name: "{autostartup}\{#AppName}.lnk"
+Type: files; Name: "{autostartup}\{#OldStartup}"
