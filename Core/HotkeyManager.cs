@@ -30,10 +30,15 @@ public sealed class HotkeyManager : NativeWindow, IDisposable
         else base.WndProc(ref m);
     }
 
-    public void Dispose()
+    public void UnregisterAll()
     {
         foreach (var id in _actions.Keys) UnregisterHotKey(Handle, id);
         _actions.Clear();
+    }
+
+    public void Dispose()
+    {
+        UnregisterAll();
         DestroyHandle();
     }
 }

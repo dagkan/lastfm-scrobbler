@@ -29,7 +29,11 @@ public class ScrobbleEngine : IDisposable
     // wall-clock timer so pausing freezes the countdown instead of it firing regardless.
     private long _playedMs;
     private int _thresholdMs;
-    private DateTime _lastPollUtc;
+    // Monotonic clock (Environment.TickCount64), not wall time: a wall-clock step
+    // backwards (sleep/resume, NTP sync, manual clock change) used to produce a
+    // negative delta that drove _playedMs hours into the negative and crashed the
+    // UI progress bar every tick.
+    private long _lastPollTicks;
     private int _scrobbledGeneration = -1;
 
     private readonly Dictionary<(string artist, string title), string> _albumCache =
@@ -91,7 +95,7 @@ public class ScrobbleEngine : IDisposable
             null,
             TimeSpan.FromMinutes(5),
             TimeSpan.FromMinutes(5));
-        _lastPollUtc = DateTime.UtcNow;
+        _lastPollTicks = Environment.TickCount64;
         _progressTimer = new System.Threading.Timer(
             _ => OnProgressTick(),
             null,
@@ -144,7 +148,7 @@ public class ScrobbleEngine : IDisposable
             // Reset the listen-time accumulator for this (possibly repeated) track.
             _playedMs = 0;
             _thresholdMs = CalculateThresholdMs(track);
-            _lastPollUtc = DateTime.UtcNow;
+            _lastPollTicks = Environment.TickCount64;
 
             NowPlayingChanged?.Invoke(this, track);
             if (_settings.WebhookOnNowPlaying)
@@ -240,7 +244,7 @@ public class ScrobbleEngine : IDisposable
     private void OnProgressTick()
     {
         var state = _watcher.GetPlaybackState(); // read before taking _lock — no nested lock ordering
-        var now = DateTime.UtcNow;
+        var now = Environment.TickCount64;
         Track? track = null;
         DateTime startedAt = default;
         int gen = 0;
@@ -248,14 +252,14 @@ public class ScrobbleEngine : IDisposable
 
         lock (_lock)
         {
-            if (_currentTrack is null) { _lastPollUtc = now; return; }
+            if (_currentTrack is null) { _lastPollTicks = now; return; }
             gen = _trackGeneration;
-            if (_scrobbledGeneration == gen) { _lastPollUtc = now; return; }
+            if (_scrobbledGeneration == gen) { _lastPollTicks = now; return; }
 
-            var deltaMs = Math.Min((now - _lastPollUtc).TotalMilliseconds, 2000);
-            _lastPollUtc = now;
+            var deltaMs = Math.Clamp(now - _lastPollTicks, 0, 2000);
+            _lastPollTicks = now;
             if (state == PlaybackState.Playing)
-                _playedMs += (long)deltaMs;
+                _playedMs += deltaMs;
 
             if (_thresholdMs > 0 && _playedMs >= _thresholdMs)
             {
@@ -347,6 +351,7 @@ public class ScrobbleEngine : IDisposable
         FileLogger.Log(success
             ? $"scrobbled: {scrobbleTrack.Artist} — {scrobbleTrack.Title}"
             : $"scrobble FAILED: {scrobbleTrack.Artist} — {scrobbleTrack.Title} ({error})");
+        if (success) Telemetry.Scrobble(1);
 
         TrackScrobbled?.Invoke(this, (scrobbleTrack, success));
         if (_settings.WebhookOnScrobble)
@@ -417,7 +422,10 @@ public class ScrobbleEngine : IDisposable
                 _db.DeletePendingScrobble(p.Id);
 
             if (sent > 0)
+            {
+                Telemetry.Scrobble(sent);
                 PendingQueueFlushed?.Invoke(this, sent);
+            }
         }
         catch { /* still offline — try again next tick */ }
     }
