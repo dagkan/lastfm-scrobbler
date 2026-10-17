@@ -50,13 +50,31 @@ public static class Telemetry
             if (_recentCrashes.TryGetValue(key, out var last) && now - last < DedupeWindow) return;
             _recentCrashes[key] = now;
         }
-        Post("crash", new
-        {
-            exceptionType = ex.GetType().FullName ?? "Unknown",
-            message       = ex.Message,
-            stackTrace    = ex.ToString(),
-        });
+        Post("crash", CrashPayload(ex));
     }
+
+    /// <summary>
+    /// Exception text can embed local paths (and with them the Windows user name)
+    /// — e.g. a FileNotFoundException under %APPDATA%. Scrub those before sending.
+    /// </summary>
+    private static string Scrub(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return s;
+        var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrEmpty(profile))
+            s = s.Replace(profile, "%USERPROFILE%", StringComparison.OrdinalIgnoreCase);
+        var user = Environment.UserName;
+        if (!string.IsNullOrEmpty(user) && user.Length > 2)
+            s = s.Replace(user, "<user>", StringComparison.OrdinalIgnoreCase);
+        return s;
+    }
+
+    private static object CrashPayload(Exception ex) => new
+    {
+        exceptionType = ex.GetType().FullName ?? "Unknown",
+        message       = Scrub(ex.Message),
+        stackTrace    = Scrub(ex.ToString()),
+    };
 
     /// <summary>Wires up WinForms + AppDomain + Task unhandled-exception hooks.</summary>
     public static void InstallCrashHandlers()
@@ -87,12 +105,7 @@ public static class Telemetry
     private static void CrashBlocking(Exception ex)
     {
         if (!Enabled) return;
-        var task = _http.PostAsJsonAsync(Base + "crash", WithIdentity(new
-        {
-            exceptionType = ex.GetType().FullName ?? "Unknown",
-            message       = ex.Message,
-            stackTrace    = ex.ToString(),
-        }));
+        var task = _http.PostAsJsonAsync(Base + "crash", WithIdentity(CrashPayload(ex)));
         task.Wait(TimeSpan.FromSeconds(3));
     }
 

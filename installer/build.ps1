@@ -22,7 +22,8 @@ param(
     [string]$Version     = "",
     [string]$Notes       = "",   # semicolon-separated: "note1;note2;note3"
     [string]$BucketName  = "lastfm-releases",
-    [string]$R2PublicUrl = "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev"
+    [string]$R2PublicUrl = "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev",
+    [switch]$SkipUpload           # build + sign the installer locally, don't touch R2 / versions.json
 )
 
 Set-StrictMode -Version Latest
@@ -87,6 +88,13 @@ $manifest | Set-Content "$PSScriptRoot\latest.json" -Encoding utf8NoBOM
 Write-Host "latest.json written." -ForegroundColor Green
 
 # ── 6. Upload to R2 ─────────────────────────────────────────────────────────
+
+if ($SkipUpload) {
+    Write-Host ""
+    Write-Host "⏸  -SkipUpload: installer built, nothing uploaded." -ForegroundColor Yellow
+    Write-Host "   Installer: $installer" -ForegroundColor Gray
+    return
+}
 
 $workerDir = "$PSScriptRoot\..\worker"
 if (-not (Test-Path "$workerDir\node_modules\.bin\wrangler.cmd")) { throw "wrangler not found. Run: npm install (in worker/)" }
