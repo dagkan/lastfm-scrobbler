@@ -185,8 +185,11 @@ $filtered  = @($existing | Where-Object { $_.version -ne $Version })
 $versions  = @(@($newEntry) + $filtered)
 if ($versions.Count -gt 10) { $versions = $versions[0..9] }
 
-# ConvertTo-Json unwraps single-item arrays into objects — force [ ... ] wrapping.
-$json = ConvertTo-Json -InputObject $versions -Depth 10 -AsArray
+# ConvertTo-Json -InputObject unwraps a single-item array into a bare object, and
+# adding -AsArray on top wraps the whole list again ([[ … ]]) — so serialize the
+# array as-is and only add the brackets when they are missing.
+$json = ConvertTo-Json -InputObject $versions -Depth 10
+if (-not $json.TrimStart().StartsWith("[")) { $json = "[$json]" }
 $json | Set-Content $versionsJsonPath -Encoding utf8NoBOM
 Write-Host "versions.json updated ($($versions.Count) entries)." -ForegroundColor Green
 
