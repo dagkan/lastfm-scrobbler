@@ -105,6 +105,9 @@ public class Database : IDisposable
                     case "daily_goal": settings.DailyScrobbleGoal = int.TryParse(value, out var dg) ? dg : 0; break;
                     case "excluded_artists": settings.ExcludedArtists = value ?? ""; break;
                     case "enable_diagnostic_log": settings.EnableDiagnosticLog = value == "1"; break;
+                    case "telemetry_enabled": settings.TelemetryEnabled = value != "0"; break;
+                    case "install_id": settings.InstallId = value; break;
+                    case "enable_global_hotkeys": settings.EnableGlobalHotkeys = value == "1"; break;
                 }
             }
             return settings;
@@ -135,6 +138,9 @@ public class Database : IDisposable
             Set("daily_goal", s.DailyScrobbleGoal.ToString());
             Set("excluded_artists", s.ExcludedArtists);
             Set("enable_diagnostic_log", s.EnableDiagnosticLog ? "1" : "0");
+            Set("telemetry_enabled", s.TelemetryEnabled ? "1" : "0");
+            Set("install_id", s.InstallId);
+            Set("enable_global_hotkeys", s.EnableGlobalHotkeys ? "1" : "0");
         }
     }
 

@@ -38,4 +38,13 @@ public class AppSettings
     public string ExcludedArtists { get; set; } = "";
 
     public bool EnableDiagnosticLog { get; set; } = false;
+
+    // Anonymous usage/crash telemetry (opt-out). InstallId is a random 32-hex id
+    // generated on first run — it is the only identity ever sent.
+    public bool    TelemetryEnabled { get; set; } = true;
+    public string? InstallId        { get; set; }
+
+    // Global hotkeys default off: Ctrl+Alt is AltGr on many layouts, so an
+    // always-on Ctrl+Alt+L / C silently swallows ł / ć / etc. while typing.
+    public bool EnableGlobalHotkeys { get; set; } = false;
 }

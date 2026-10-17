@@ -3,9 +3,11 @@ import { Md5 } from 'ts-md5';
 interface Env {
   LASTFM_API_KEY: string;
   LASTFM_API_SECRET: string;
+  TELEMETRY_DB: D1Database;
 }
 
 const R2_BASE = 'https://pub-8a5464b225534730b481b262ffe4748b.r2.dev';
+const CORS_HEADERS = { 'Access-Control-Allow-Origin': '*' };
 
 function md5hex(input: string): string {
   return Md5.hashStr(input);
@@ -22,6 +24,87 @@ function buildSignature(params: Record<string, string>, secret: string): string 
 
   return md5hex(str);
 }
+
+// ── Telemetry ────────────────────────────────────────────────────────────────
+// Schema (D1 `lastfm-telemetry`):
+//   installs      (install_id PK, first_seen, last_seen, app_version)
+//   counters      (name PK, value)
+//   crash_reports (id, received_at, install_id, app_version, exception_type, message, stack_trace)
+
+function isValidInstallId(id: unknown): id is string {
+  return typeof id === 'string' && /^[a-f0-9]{32}$/i.test(id);
+}
+
+async function bumpCounter(db: D1Database, name: string, by: number): Promise<void> {
+  await db
+    .prepare(`INSERT INTO counters (name, value) VALUES (?, ?)
+              ON CONFLICT(name) DO UPDATE SET value = value + ?`)
+    .bind(name, by, by)
+    .run();
+}
+
+async function handleTelemetry(request: Request, url: URL, env: Env): Promise<Response | null> {
+  if (!url.pathname.startsWith('/telemetry/')) return null;
+  if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 });
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return new Response('Bad request', { status: 400 });
+  }
+
+  if (!isValidInstallId(body.installId)) {
+    return new Response('Bad request', { status: 400 });
+  }
+  const installId  = body.installId;
+  const appVersion = typeof body.appVersion === 'string' ? body.appVersion.slice(0, 32) : 'unknown';
+
+  if (url.pathname === '/telemetry/ping') {
+    const today = new Date().toISOString().slice(0, 10);
+    await env.TELEMETRY_DB.batch([
+      env.TELEMETRY_DB
+        .prepare(
+          `INSERT INTO installs (install_id, first_seen, last_seen, app_version)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(install_id) DO UPDATE SET last_seen = excluded.last_seen, app_version = excluded.app_version`,
+        )
+        .bind(installId, today, today, appVersion),
+      env.TELEMETRY_DB.prepare(
+        `INSERT INTO counters (name, value) VALUES ('ping_total', 1)
+         ON CONFLICT(name) DO UPDATE SET value = value + 1`,
+      ),
+    ]);
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  if (url.pathname === '/telemetry/scrobble') {
+    const count =
+      typeof body.count === 'number' && Number.isInteger(body.count) && body.count > 0
+        ? Math.min(body.count, 1000)
+        : 1;
+    await bumpCounter(env.TELEMETRY_DB, 'scrobble_total', count);
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  if (url.pathname === '/telemetry/crash') {
+    const exceptionType = typeof body.exceptionType === 'string' ? body.exceptionType.slice(0, 200) : 'Unknown';
+    const message       = typeof body.message === 'string' ? body.message.slice(0, 2000) : '';
+    const stackTrace    = typeof body.stackTrace === 'string' ? body.stackTrace.slice(0, 8000) : '';
+    await env.TELEMETRY_DB
+      .prepare(
+        `INSERT INTO crash_reports (received_at, install_id, app_version, exception_type, message, stack_trace)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .bind(new Date().toISOString(), installId, appVersion, exceptionType, message, stackTrace)
+      .run();
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+
+  return new Response('Not found', { status: 404 });
+}
+
+// ── Worker ───────────────────────────────────────────────────────────────────
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -49,6 +132,9 @@ export default {
         },
       });
     }
+
+    const telemetryResponse = await handleTelemetry(request, url, env);
+    if (telemetryResponse) return telemetryResponse;
 
     if (request.method !== 'POST') {
       return new Response('Method not allowed', { status: 405 });
