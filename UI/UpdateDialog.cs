@@ -15,9 +15,15 @@ public class UpdateDialog : Form
     private Label       _statusIcon  = null!;
     private Label       _statusTitle = null!;
     private Label       _statusBody  = null!;
+    private Label       _notesHdr    = null!;
+    private Label       _notesBody   = null!;
     private ProgressBar _progress    = null!;
     private Button      _actionBtn   = null!;
     private Button      _closeBtn    = null!;
+
+    private const int BaseHeight  = 240;
+    private const int NotesTop    = 110;
+    private const int ButtonsTop  = 156;
 
     private UpdateChecker.UpdateInfo? _foundUpdate;
 
@@ -71,6 +77,24 @@ public class UpdateDialog : Form
             ForeColor = Color.FromArgb(160, 160, 160),
         };
 
+        _notesHdr = new Label
+        {
+            Location  = new Point(24, NotesTop),
+            Size      = new Size(428, 16),
+            Text      = "WHAT'S NEW",
+            Font      = FontManager.Bold(7.5f),
+            ForeColor = Color.FromArgb(90, 90, 90),
+            Visible   = false,
+        };
+        _notesBody = new Label
+        {
+            Location  = new Point(24, NotesTop + 20),
+            Size      = new Size(428, 0),
+            Font      = FontManager.Regular(9f),
+            ForeColor = Color.FromArgb(170, 170, 170),
+            Visible   = false,
+        };
+
         _progress = new ProgressBar
         {
             Location = new Point(24, 116),
@@ -83,15 +107,41 @@ public class UpdateDialog : Form
         _actionBtn.BackColor = _accent;
         _actionBtn.ForeColor = Color.White;
         _actionBtn.Font      = FontManager.Bold(9.5f);
-        _actionBtn.Location  = new Point(480 - 110 - 110 - 24 - 8, 156);
+        _actionBtn.Location  = new Point(480 - 110 - 110 - 24 - 8, ButtonsTop);
+        _actionBtn.Anchor    = AnchorStyles.Bottom | AnchorStyles.Right;
         _actionBtn.Visible   = false;
         _actionBtn.Click    += ActionClicked;
 
         _closeBtn          = MakeBtn("Close", 100, 34);
-        _closeBtn.Location = new Point(480 - 100 - 24, 156);
+        _closeBtn.Location = new Point(480 - 100 - 24, ButtonsTop);
+        _closeBtn.Anchor   = AnchorStyles.Bottom | AnchorStyles.Right;
         _closeBtn.Click   += (_, _) => Close();
 
-        Controls.AddRange([_statusIcon, _statusTitle, _statusBody, _progress, _actionBtn, _closeBtn]);
+        Controls.AddRange([_statusIcon, _statusTitle, _statusBody, _notesHdr, _notesBody, _progress, _actionBtn, _closeBtn]);
+    }
+
+    /// <summary>Shows release notes under the status text and grows the dialog to fit (max ~8 lines).</summary>
+    private void ShowNotes(string[] notes)
+    {
+        if (notes.Length == 0) { HideNotes(); return; }
+
+        var text = string.Join(Environment.NewLine, notes.Select(n => "•  " + n));
+        var size = TextRenderer.MeasureText(text, _notesBody.Font, new Size(_notesBody.Width, 0),
+            TextFormatFlags.WordBreak | TextFormatFlags.TextBoxControl);
+        int h = Math.Min(size.Height + 4, 160);
+
+        _notesBody.Text    = text;
+        _notesBody.Height  = h;
+        _notesHdr.Visible  = true;
+        _notesBody.Visible = true;
+        Height = BaseHeight + 20 + h + 12;
+    }
+
+    private void HideNotes()
+    {
+        _notesHdr.Visible  = false;
+        _notesBody.Visible = false;
+        Height = BaseHeight;
     }
 
     private static Button MakeBtn(string text, int w, int h)
@@ -147,6 +197,7 @@ public class UpdateDialog : Form
         _actionBtn.Text       = "Install";
         _actionBtn.Visible    = true;
         _closeBtn.Text        = "Later";
+        ShowNotes(info.Notes);
     }
 
     private void SetState_Downloading(int percent)
@@ -155,6 +206,7 @@ public class UpdateDialog : Form
         _statusIcon.ForeColor = _accent;
         _statusTitle.Text     = "Downloading update…";
         _statusBody.Text      = $"{percent}% — verifying integrity after download.";
+        HideNotes();
         _progress.Visible     = true;
         _progress.Style       = ProgressBarStyle.Continuous;
         _progress.Value       = Math.Clamp(percent, 0, 100);
@@ -178,6 +230,7 @@ public class UpdateDialog : Form
         _statusIcon.ForeColor = Color.FromArgb(220, 80, 80);
         _statusTitle.Text     = "Update check failed";
         _statusBody.Text      = msg;
+        HideNotes();
         _progress.Visible     = false;
         _actionBtn.Text       = "Retry";
         _actionBtn.Visible    = true;

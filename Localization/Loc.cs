@@ -1,6 +1,6 @@
 namespace LastFmScrobbler.Localization;
 
-public static class Loc
+public static partial class Loc
 {
     public record LangInfo(string Code, string NativeName);
 

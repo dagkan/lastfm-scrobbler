@@ -52,8 +52,8 @@
 
 ### About Page
 - [x] App name, version shown; no build-date field
-- Donation button intentionally points at `buymeacoffee.com/daiquiri`, not `spacechild.dev`
-- [x] GitHub link (now `github.com/daiquiridev/lastfm-scrobbler`), changelog link (Version History)
+- [x] GitHub + GitHub Sponsors buttons (GitHub button styling), Buy Me a Coffee kept as a secondary link
+- [x] GitHub link (`github.com/dagkan/lastfm-scrobbler`), changelog link (Version History)
 - [x] App description (one paragraph)
 
 ### Better Navigation & Menu Structure
@@ -67,7 +67,7 @@
 - [ ] Auto-show login prompt on first run when no session is stored (currently opens the Monitor page, where the ProfileCard's login button is visible but not auto-triggered)
 
 ### Custom Domain for Updates
-- Solved functionally via the `proxy.lastfm.spacechild.dev` Cloudflare Worker (avoids the blocked `r2.dev` domain); a dedicated `updates.lastfm.spacechild.dev` CNAME would be cosmetic only — not planned
+- Solved functionally via the `proxy.lastfm.spacechild.dev` Cloudflare Worker (avoids the blocked `r2.dev` domain). The hostname is baked into every installed copy (API proxy + update manifest), so it must stay reachable — moving it means shipping a release that points at the new host first and keeping the old one alive as an alias until the install base has rolled over.
 
 ### Friends page redesign
 - [x] Grid of avatar cards (avatar + username + last scrobbled track + relative time)

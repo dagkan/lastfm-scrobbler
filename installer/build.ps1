@@ -127,14 +127,23 @@ if ($existing.Count -eq 0) {
     }
 }
 
-$notesArray = if ($Notes) { @($Notes -split ";") } else { @() }
+$notesArray = if ($Notes) { @($Notes -split ";" | ForEach-Object { $_.Trim() } | Where-Object { $_ }) } else { @() }
 $newEntry = [ordered]@{
     version = $Version
     url     = "$R2PublicUrl/lastfm-scrobbler/$installerFilename"
     sha256  = $sha256
     date    = (Get-Date -Format "yyyy-MM-dd")
-    notes   = $notesArray
+    # Wrapped in a PSObject[] so ConvertTo-Json keeps a single note as ["..."]
+    # instead of unwrapping it to "..." — the app's changelog parser is tolerant
+    # now, but the schema should stay one shape.
+    notes   = [object[]]$notesArray
 }
+
+# Normalize prior entries too: any bare-string `notes` becomes a one-item array.
+$existing = @($existing | ForEach-Object {
+    if ($_.PSObject.Properties['notes'] -and $_.notes -is [string]) { $_.notes = [object[]]@($_.notes) }
+    $_
+})
 
 # Prepend new entry, deduplicate by version, keep last 10
 $filtered  = @($existing | Where-Object { $_.version -ne $Version })
@@ -142,8 +151,7 @@ $versions  = @(@($newEntry) + $filtered)
 if ($versions.Count -gt 10) { $versions = $versions[0..9] }
 
 # ConvertTo-Json unwraps single-item arrays into objects — force [ ... ] wrapping.
-$json = ConvertTo-Json -InputObject $versions -Depth 10
-if (-not $json.TrimStart().StartsWith("[")) { $json = "[$json]" }
+$json = ConvertTo-Json -InputObject $versions -Depth 10 -AsArray
 $json | Set-Content $versionsJsonPath -Encoding utf8NoBOM
 Write-Host "versions.json updated ($($versions.Count) entries)." -ForegroundColor Green
 

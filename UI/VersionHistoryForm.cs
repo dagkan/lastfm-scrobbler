@@ -35,12 +35,13 @@ public class VersionHistoryForm : Form
     private void InitializeComponent()
     {
         Text            = "What's New";
-        Size            = new Size(480, 540);
-        MinimumSize     = new Size(400, 400);
+        Size            = new Size(520, 580);
+        MinimumSize     = new Size(420, 400);
         StartPosition   = FormStartPosition.CenterParent;
-        FormBorderStyle = FormBorderStyle.FixedDialog;
+        FormBorderStyle = FormBorderStyle.Sizable;
         MaximizeBox     = false;
         MinimizeBox     = false;
+        ShowInTaskbar   = false;
         BackColor       = CMain;
         ForeColor       = CFg;
         Font            = FontManager.Regular(9.5f);
@@ -68,17 +69,25 @@ public class VersionHistoryForm : Form
             ScrollBars  = RichTextBoxScrollBars.Vertical,
             TabStop     = false,
         };
-        _changelog.LinkClicked += (_, _) => { };
+        _changelog.DetectUrls   = true;
+        _changelog.LinkClicked += (_, e) =>
+        {
+            if (e.LinkText is null) return;
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(e.LinkText) { UseShellExecute = true }); }
+            catch { }
+        };
 
         var changelogWrapper = new Panel
         {
             Dock      = DockStyle.Fill,
             BackColor = CMain,
-            Padding   = new Padding(14, 10, 4, 0),
+            Padding   = new Padding(18, 12, 6, 0),
         };
         changelogWrapper.Controls.Add(_changelog);
 
         // ── Bottom bar ──────────────────────────────────────────────────────
+        // Dock-based so the picker + Install button stay glued to the right edge
+        // whatever the client size works out to (DPI, sizable border, …).
         var bottom = new Panel { Dock = DockStyle.Bottom, Height = 54, BackColor = Color.FromArgb(18, 18, 18) };
 
         _statusLbl = new Label
@@ -102,7 +111,7 @@ public class VersionHistoryForm : Form
         {
             Text      = "Install",
             Size      = new Size(80, 30),
-            Location  = new Point(480 - 80 - 18, 12),
+            Location  = new Point(148, 12),
             FlatStyle = FlatStyle.Flat,
             BackColor = _accent,
             ForeColor = Color.White,
@@ -116,7 +125,7 @@ public class VersionHistoryForm : Form
         _versionPick = new ComboBox
         {
             Size          = new Size(140, 30),
-            Location      = new Point(480 - 80 - 18 - 148, 14),
+            Location      = new Point(0, 14),
             DropDownStyle = ComboBoxStyle.DropDownList,
             BackColor     = Color.FromArgb(40, 40, 40),
             ForeColor     = CFg,
@@ -126,12 +135,17 @@ public class VersionHistoryForm : Form
         };
         _versionPick.SelectedIndexChanged += (_, _) => _installBtn.Enabled = _versionPick.SelectedIndex >= 0;
 
-        bottom.Controls.AddRange([_statusLbl, _progress, _versionPick, _installBtn]);
+        var right = new Panel { Dock = DockStyle.Right, Width = 140 + 8 + 80 + 18, BackColor = Color.Transparent };
+        right.Controls.AddRange([_versionPick, _installBtn]);
 
-        Controls.Add(heading);
-        Controls.Add(divider);
-        Controls.Add(bottom);
+        bottom.Controls.AddRange([_statusLbl, _progress, right]);
+
+        // Dock.Fill control first (bottom of the z-order) so it is laid out after
+        // the Top/Bottom panels — otherwise the first entry hides under the heading.
         Controls.Add(changelogWrapper);
+        Controls.Add(bottom);
+        Controls.Add(divider);
+        Controls.Add(heading);
     }
 
     private async Task LoadAsync()
@@ -169,37 +183,47 @@ public class VersionHistoryForm : Form
             var headerColor = isCurrent ? Color.FromArgb(80, 200, 80) : CFg;
 
             if (i > 0)
-                AppendText(Environment.NewLine, FontManager.Regular(5f), CMain);
+                AppendText(Environment.NewLine + Environment.NewLine, FontManager.Regular(6f), CMain);
 
             // Version + date
-            AppendText($"v{v.Version}", FontManager.Bold(10.5f), headerColor);
+            AppendText($"v{v.Version}", FontManager.Bold(11f), headerColor);
             if (!string.IsNullOrEmpty(v.Date))
                 AppendText($"   ·   {v.Date}", FontManager.Regular(8.5f), CDim);
             if (isCurrent)
-                AppendText("   current", FontManager.Bold(8f), Color.FromArgb(60, 160, 60));
-            AppendText(Environment.NewLine, FontManager.Regular(4f), CMain);
+                AppendText("   ✓ installed", FontManager.Bold(8f), Color.FromArgb(60, 160, 60));
+            AppendText(Environment.NewLine, FontManager.Regular(5f), CMain);
 
-            // Notes
+            // Notes — hanging indent so wrapped lines align under the text, not the bullet
+            _changelog.SelectionIndent        = 18;
+            _changelog.SelectionHangingIndent = 14;
             if (v.Notes.Length > 0)
             {
                 foreach (var note in v.Notes)
-                    AppendText($"  •  {note}{Environment.NewLine}", FontManager.Regular(9.5f), Color.FromArgb(180, 180, 180));
+                    AppendText($"•  {note}{Environment.NewLine}", FontManager.Regular(9.5f), Color.FromArgb(180, 180, 180));
             }
             else
             {
-                AppendText($"  No release notes.{Environment.NewLine}", FontManager.Italic(9f), Color.FromArgb(75, 75, 75));
+                AppendText($"No release notes.{Environment.NewLine}", FontManager.Italic(9f), Color.FromArgb(75, 75, 75));
             }
-
-            // Separator (not after last item)
-            if (i < _versions.Count - 1)
-            {
-                AppendText(Environment.NewLine, FontManager.Regular(3f), CMain);
-                AppendText(new string('─', 52) + Environment.NewLine, FontManager.Regular(7f), Color.FromArgb(42, 42, 42));
-            }
+            _changelog.SelectionIndent        = 0;
+            _changelog.SelectionHangingIndent = 0;
         }
 
-        _changelog.Select(0, 0);
         SendMessage(_changelog.Handle, 0x000B, (IntPtr)1, IntPtr.Zero); // WM_SETREDRAW true
+        ScrollToTop();
+        // Appending with the caret leaves the view at the bottom; the form may also
+        // still be laying out, so re-assert "top" once the message loop settles.
+        BeginInvoke(ScrollToTop);
+    }
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, ref Point lParam);
+
+    private void ScrollToTop()
+    {
+        _changelog.Select(0, 0);
+        var origin = Point.Empty;
+        SendMessage(_changelog.Handle, 0x04DE, IntPtr.Zero, ref origin); // EM_SETSCROLLPOS (0,0)
         _changelog.Invalidate();
     }
 
@@ -223,7 +247,7 @@ public class VersionHistoryForm : Form
         _changelog.SelectionLength = 0;
         _changelog.SelectionFont   = font;
         _changelog.SelectionColor  = color;
-        _changelog.AppendText(text);
+        _changelog.SelectedText    = text; // keeps the paragraph indent set by the caller
     }
 
     private async void InstallClicked(object? sender, EventArgs e)
@@ -240,7 +264,7 @@ public class VersionHistoryForm : Form
         try
         {
             var progress = new Progress<int>(p => { if (!IsDisposed) _progress.Value = p; });
-            var info     = new UpdateChecker.UpdateInfo(entry.Version, entry.Url, entry.Sha256);
+            var info     = new UpdateChecker.UpdateInfo(entry.Version, entry.Url, entry.Sha256, entry.Notes);
             var path     = await _checker.DownloadAsync(info, progress);
             UpdateChecker.LaunchAndExit(path);
             Application.Exit();

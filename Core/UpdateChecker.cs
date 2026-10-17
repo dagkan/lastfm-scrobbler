@@ -25,7 +25,7 @@ public class UpdateChecker
     private static readonly Version _current =
         Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
 
-    public record UpdateInfo(string Version, string Url, string Sha256);
+    public record UpdateInfo(string Version, string Url, string Sha256, string[] Notes);
     public record VersionEntry(string Version, string Url, string Sha256, string Date, string[] Notes);
 
     /// <summary>
@@ -51,8 +51,30 @@ public class UpdateChecker
         // Normalize both to 3 components (Major.Minor.Build) so "1.2.2" == "1.2.2.0"
         var r3 = new Version(remote.Major,   remote.Minor,   Math.Max(remote.Build,    0));
         var c3 = new Version(_current.Major, _current.Minor, Math.Max(_current.Build,  0));
-        return r3 > c3 ? new UpdateInfo(versionStr, url, sha256) : null;
+        if (r3 <= c3) return null;
+
+        // Release notes live in versions.json — best effort, the update itself
+        // must not fail just because the changelog is unreachable.
+        var notes = ParseNotes(obj["notes"]);
+        if (notes.Length == 0)
+        {
+            var history = await GetVersionHistoryAsync();
+            notes = history.FirstOrDefault(v => v.Version == versionStr)?.Notes ?? [];
+        }
+        return new UpdateInfo(versionStr, url, sha256, notes);
     }
+
+    /// <summary>
+    /// `notes` is an array in most entries but a bare string in a few (build.ps1
+    /// used to let ConvertTo-Json unwrap single-item arrays). Accept both — one
+    /// odd entry used to throw and take the whole version history down with it.
+    /// </summary>
+    private static string[] ParseNotes(JToken? token) => token switch
+    {
+        JArray arr => arr.Select(t => t.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToArray(),
+        JValue { Type: JTokenType.String } v => string.IsNullOrWhiteSpace(v.ToString()) ? [] : [v.ToString()],
+        _ => [],
+    };
 
     /// <summary>Clean assembly version (e.g. "1.2.5") for display, without source revision.</summary>
     public static string DisplayVersion =>
@@ -104,11 +126,11 @@ public class UpdateChecker
             var arr  = JArray.Parse(json);
             return arr
                 .Select(o => new VersionEntry(
-                    o["version"]?.ToString()          ?? "",
-                    o["url"]?.ToString()              ?? "",
-                    o["sha256"]?.ToString()           ?? "",
-                    o["date"]?.ToString()             ?? "",
-                    o["notes"]?.ToObject<string[]>()  ?? []))
+                    o["version"]?.ToString() ?? "",
+                    o["url"]?.ToString()     ?? "",
+                    o["sha256"]?.ToString()  ?? "",
+                    o["date"]?.ToString()    ?? "",
+                    ParseNotes(o["notes"])))
                 .Where(v => !string.IsNullOrEmpty(v.Version))
                 .ToList();
         }

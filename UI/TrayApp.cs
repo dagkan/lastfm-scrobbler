@@ -36,10 +36,10 @@ public class TrayApp : ApplicationContext
 
         _nowPlayingItem     = new ToolStripMenuItem("Not playing") { Enabled = false };
         _scrobbleCountItem  = new ToolStripMenuItem("0 scrobbles this session") { Enabled = false };
-        _copyNowPlayingItem = new ToolStripMenuItem("Copy Now Playing\tCtrl+Alt+C");
+        _copyNowPlayingItem = new ToolStripMenuItem("Copy Now Playing");
         _copyNowPlayingItem.Click += (_, _) => CopyNowPlaying();
 
-        _loveItem = new ToolStripMenuItem("♡ Love\tCtrl+Alt+L") { Enabled = false };
+        _loveItem = new ToolStripMenuItem("♡ Love") { Enabled = false };
         _loveItem.Click += (_, _) => _mainForm.Invoke(() => _mainForm.ToggleLoveCurrentTrack());
 
         _updateItem = new ToolStripMenuItem("Check for Updates");
@@ -86,10 +86,11 @@ public class TrayApp : ApplicationContext
         _engine.NowPlayingChanged += OnNowPlayingChanged;
         _engine.TrackScrobbled   += OnTrackScrobbled;
 
-        // Global hotkeys: Ctrl+Alt+L = Love, Ctrl+Alt+C = Copy
+        // Global hotkeys (Ctrl+Alt+L = Love, Ctrl+Alt+C = Copy) are opt-in: Ctrl+Alt
+        // doubles as AltGr on many layouts, so an always-on binding ate ł / ć etc.
         _hotkeys = new HotkeyManager();
-        _hotkeys.Register(Keys.L, () => _mainForm.Invoke(() => _mainForm.ToggleLoveCurrentTrack()));
-        _hotkeys.Register(Keys.C, () => _mainForm.Invoke(() => CopyNowPlaying()));
+        ApplyHotkeys();
+        _mainForm.SettingsSaved += (_, _) => ApplyHotkeys();
 
         // First-run users without a session need to see the login screen — show
         // the form. Returning users start in tray and can open via double-click
@@ -164,13 +165,24 @@ public class TrayApp : ApplicationContext
 
     // ── Engine & tray ─────────────────────────────────────────────────────────
 
+    private void ApplyHotkeys()
+    {
+        _hotkeys.UnregisterAll();
+        _copyNowPlayingItem.ShortcutKeyDisplayString = _settings.EnableGlobalHotkeys ? "Ctrl+Alt+C" : "";
+        _loveItem.ShortcutKeyDisplayString           = _settings.EnableGlobalHotkeys ? "Ctrl+Alt+L" : "";
+        if (!_settings.EnableGlobalHotkeys) return;
+        _hotkeys.Register(Keys.L, () => _mainForm.Invoke(() => _mainForm.ToggleLoveCurrentTrack()));
+        _hotkeys.Register(Keys.C, () => _mainForm.Invoke(() => CopyNowPlaying()));
+    }
+
     private void CopyNowPlaying()
     {
         if (_currentTrack is null) return;
         var text = string.IsNullOrEmpty(_currentTrack.Album)
             ? $"{_currentTrack.Artist} — {_currentTrack.Title}"
             : $"{_currentTrack.Artist} — {_currentTrack.Title} ({_currentTrack.Album})";
-        Clipboard.SetText(text);
+        try { Clipboard.SetText(text); }
+        catch (Exception ex) { _tray.ShowBalloonTip(2000, "Copy failed", ex.Message, ToolTipIcon.Warning); return; }
         _tray.ShowBalloonTip(1500, "Copied", text, ToolTipIcon.None);
     }
 

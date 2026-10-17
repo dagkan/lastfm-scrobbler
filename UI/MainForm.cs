@@ -126,8 +126,16 @@ public class MainForm : Form
     private NavButton? _activeNavBtn;
     private readonly List<Button> _accentBtns = new();
 
-    private Button _maxBtn = null!;
+    private CaptionButton _maxBtn = null!;
     private bool   _externalCloseRequested;
+
+    private CheckBox _telemetryChk = null!;
+    private CheckBox _hotkeysChk   = null!;
+
+    /// <summary>Raised after the Scrobbling/Settings page is saved (TrayApp re-applies hotkeys).</summary>
+    public event EventHandler? SettingsSaved;
+
+    private float Dpi => DeviceDpi / 96f;
 
     public MainForm(Database db, ScrobbleEngine engine, AppSettings settings)
     {
@@ -178,18 +186,18 @@ public class MainForm : Form
                 e.Cancel = true; Hide();
             }
         };
-        SizeChanged    += (_, _) => { if (_maxBtn != null) _maxBtn.Text = WindowState == FormWindowState.Maximized ? "❐" : "□"; };
+        SizeChanged    += (_, _) => { if (_maxBtn != null) _maxBtn.Glyph = WindowState == FormWindowState.Maximized ? CaptionGlyph.Restore : CaptionGlyph.Maximize; };
         Load           += (_, _) => SizePages();
 
         var sidebar = new Panel { Dock = DockStyle.Left, Width = 200, BackColor = CSidebar };
 
-        _btnMonitor  = NavBtn(Loc.T("NavMonitor"),       "▶");
-        _btnHistory  = NavBtn(Loc.T("NavHistory"),       "◎");
-        _btnStats    = NavBtn(Loc.T("NavStats"),          "∑");
-        _btnFriends  = NavBtn("Friends",                  "☆");
-        _btnScrobble = NavBtn(Loc.T("NavScrobbling"),    "⚙");
-        _btnNorm     = NavBtn(Loc.T("NavNormalization"), "≡");
-        _btnAbout    = NavBtn("About",                   "◈");
+        _btnMonitor  = NavBtn(Loc.T("NavMonitor"),       NavIcon.Monitor);
+        _btnHistory  = NavBtn(Loc.T("NavHistory"),       NavIcon.History);
+        _btnStats    = NavBtn(Loc.T("NavStats"),         NavIcon.Stats);
+        _btnFriends  = NavBtn(Loc.T("NavFriends"),       NavIcon.Friends);
+        _btnScrobble = NavBtn(Loc.T("NavScrobbling"),    NavIcon.Settings);
+        _btnNorm     = NavBtn(Loc.T("NavNormalization"), NavIcon.Normalization);
+        _btnAbout    = NavBtn(Loc.T("NavAbout"),         NavIcon.About);
 
         _btnMonitor.Click  += (_, _) => { Navigate(_pageMonitor,  _btnMonitor);  RefreshMonitorStats(); };
         _btnHistory.Click  += (_, _) => { Navigate(_pageHistory,  _btnHistory);  LoadHistory(); RefreshStats(); };
@@ -218,7 +226,7 @@ public class MainForm : Form
         bugBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(22, 22, 22);
         bugBtn.MouseEnter += (_, _) => bugBtn.ForeColor = Color.FromArgb(110, 110, 110);
         bugBtn.MouseLeave += (_, _) => bugBtn.ForeColor = Color.FromArgb(60, 60, 60);
-        bugBtn.Click += (_, _) => OpenUrl("mailto:support@spacechild.dev?subject=Last.fm%20Scrobbler%20Bug");
+        bugBtn.Click += (_, _) => OpenUrl(Links.Issues);
 
         sidebar.Controls.Add(bugBtn);
         sidebar.Controls.Add(_profileCard);
@@ -262,10 +270,9 @@ public class MainForm : Form
         foreach (var p in new[] { _pageMonitor, _pageHistory, _pageScrobble, _pageNorm, _pageStats, _pageFriends, _pageAbout })
             p.Visible = false;
         foreach (var b in new[] { _btnMonitor, _btnHistory, _btnStats, _btnFriends, _btnScrobble, _btnNorm, _btnAbout })
-        { b.BackColor = Color.Transparent; b.ForeColor = CDim; }
+            b.SetActive(false, _cAccent);
         page.Visible  = true;
-        btn.BackColor = _cAccent;
-        btn.ForeColor = Color.White;
+        btn.SetActive(true, _cAccent);
         _activeNavBtn = btn;
     }
 
@@ -338,17 +345,33 @@ public class MainForm : Form
         _monBar = new ProgressBar { Dock = DockStyle.Fill, Minimum = 0, Maximum = 100, ForeColor = _cAccent };
         barRow.Controls.Add(_monBar);
 
-        // Quick stats strip (4 columns: today, week, total, streak)
-        var statsStrip = new Panel { Dock = DockStyle.Top, Height = 58, BackColor = Color.FromArgb(20, 20, 20) };
-        _monQuickToday  = BigStatLabel(24);
-        _monQuickWeek   = BigStatLabel(224);
-        _monQuickTotal  = BigStatLabel(424);
-        _monQuickStreak = BigStatLabel(624);
-        var l1 = SmallStatLabel(Loc.T("StatsToday").ToUpperInvariant(),      24);
-        var l2 = SmallStatLabel(Loc.T("StatsThisWeek").ToUpperInvariant(),   224);
-        var l3 = SmallStatLabel(Loc.T("StatsTotalLabel").ToUpperInvariant(), 424);
-        var l4 = SmallStatLabel("STREAK",                                    624);
-        statsStrip.Controls.AddRange([_monQuickToday, _monQuickWeek, _monQuickTotal, _monQuickStreak, l1, l2, l3, l4]);
+        // Quick stats strip (4 equal columns: today, week, total, streak) — a
+        // TableLayoutPanel so the columns share the width instead of the last one
+        // falling off the right edge at the minimum window size.
+        var statsStrip = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top, Height = 58, BackColor = Color.FromArgb(20, 20, 20),
+            ColumnCount = 4, RowCount = 1, Padding = new Padding(18, 0, 18, 0),
+        };
+        for (int i = 0; i < 4; i++) statsStrip.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 25f));
+        _monQuickToday  = BigStatLabel();
+        _monQuickWeek   = BigStatLabel();
+        _monQuickTotal  = BigStatLabel();
+        _monQuickStreak = BigStatLabel();
+        var cells = new[]
+        {
+            (_monQuickToday,  Loc.T("StatsToday").ToUpperInvariant()),
+            (_monQuickWeek,   Loc.T("StatsThisWeek").ToUpperInvariant()),
+            (_monQuickTotal,  Loc.T("StatsTotalLabel").ToUpperInvariant()),
+            (_monQuickStreak, Loc.T("StatsStreak").ToUpperInvariant()),
+        };
+        for (int i = 0; i < cells.Length; i++)
+        {
+            var cell = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Color.Transparent };
+            cell.Controls.Add(cells[i].Item1);
+            cell.Controls.Add(SmallStatLabel(cells[i].Item2));
+            statsStrip.Controls.Add(cell, i, 0);
+        }
 
         // Goal bar (visible only when goal > 0)
         _monGoalBar = new Label
@@ -416,16 +439,18 @@ public class MainForm : Form
         _pageMonitor.Controls.Add(card);
     }
 
-    private Label BigStatLabel(int x) => new()
+    private Label BigStatLabel() => new()
     {
         Text = "—", Font = FontManager.Bold(18f), ForeColor = CFg,
-        Location = new Point(x, 6), Size = new Size(190, 26), AutoEllipsis = true,
+        Location = new Point(6, 6), Size = new Size(180, 26), AutoEllipsis = true,
+        Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right,
     };
 
-    private static Label SmallStatLabel(string text, int x) => new()
+    private static Label SmallStatLabel(string text) => new()
     {
         Text = text, Font = FontManager.Bold(7f), ForeColor = Color.FromArgb(65, 65, 65),
-        Location = new Point(x, 36), Size = new Size(190, 14),
+        Location = new Point(6, 36), Size = new Size(180, 14), AutoEllipsis = true,
+        Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right,
     };
 
     private void RefreshMonitorStats()
@@ -468,7 +493,7 @@ public class MainForm : Form
         var searchRow = new Panel { Dock = DockStyle.Top, Height = 36, BackColor = CMain };
         _historySearchBox = MakeInput(280, 26);
         _historySearchBox.Location = new Point(24, 5);
-        _historySearchBox.PlaceholderText = "Search artist or track…";
+        _historySearchBox.PlaceholderText = Loc.T("SearchHistory");
         _historySearchBox.TextChanged += (_, _) => { _historySearchDebounce.Stop(); _historySearchDebounce.Start(); };
         _historySearchDebounce.Tick += (_, _) => { _historySearchDebounce.Stop(); ApplyHistoryFilter(); };
         searchRow.Controls.Add(_historySearchBox);
@@ -496,11 +521,11 @@ public class MainForm : Form
         manualBtn.Location  = new Point(144, 8);
         manualBtn.Click    += ManualScrobbleClicked;
 
-        var exportBtn = MakeBtn("Export CSV", 100, 30);
+        var exportBtn = MakeBtn(Loc.T("BtnExportCsv"), 100, 30);
         exportBtn.Location  = new Point(318, 8);
         exportBtn.Click    += ExportCsvClicked;
 
-        var importBtn = MakeBtn("Import CSV", 100, 30);
+        var importBtn = MakeBtn(Loc.T("BtnImportCsv"), 100, 30);
         importBtn.Location  = new Point(428, 8);
         importBtn.Click    += ImportCsvClicked;
 
@@ -628,7 +653,7 @@ public class MainForm : Form
         y += 28;
 
         NumRow(Loc.T("LblDuplicateProtection"), _dupWindow, Loc.T("UnitMinSkipDup"));
-        NumRow("Daily scrobble goal", _goalSpin, "scrobbles/day  (0 = disabled)");
+        NumRow(Loc.T("LblDailyGoal"), _goalSpin, Loc.T("UnitDailyGoal"));
 
         foreach (var chk in new CheckBox[] { _filterAppleChk, _editBeforeChk, _showNotifChk, _startWinChk })
         {
@@ -646,21 +671,17 @@ public class MainForm : Form
         _langCombo.Location = new Point(220, y);
         inner.Controls.Add(_langCombo);
 
-        // Hotkeys info
+        // Hotkeys (off by default — Ctrl+Alt is AltGr on many keyboard layouts)
         y += 40;
-        inner.Controls.Add(new Label
-        {
-            Text = "Hotkeys:  Ctrl+Alt+L  →  Love/unlove track      Ctrl+Alt+C  →  Copy now playing",
-            Location = new Point(lx, y), Size = new Size(600, 20), ForeColor = Color.FromArgb(70, 70, 70), Font = FontManager.Regular(8.5f),
-        });
+        _hotkeysChk = MakeChk(Loc.T("ChkHotkeys"));
+        _hotkeysChk.Location = new Point(lx, y);
+        inner.Controls.Add(_hotkeysChk);
+        y += 24;
+        inner.Controls.Add(HintLabel(Loc.T("HotkeysHint"), lx + 18, y));
 
         // Webhook section
-        y += 32;
-        inner.Controls.Add(new Label
-        {
-            Text = "WEBHOOKS", Location = new Point(lx, y), Size = new Size(300, 18),
-            ForeColor = Color.FromArgb(70, 70, 70), Font = FontManager.Bold(8f),
-        });
+        y += 44;
+        inner.Controls.Add(SectionHeading(Loc.T("SectionWebhooks"), lx, y));
         y += 22;
 
         _webhookUrlBox = new TextBox
@@ -676,8 +697,8 @@ public class MainForm : Form
         inner.Controls.Add(_webhookUrlBox);
         y += 34;
 
-        _webhookScrobbleChk   = MakeChk("Post on scrobble");
-        _webhookNowPlayingChk = MakeChk("Post on now playing / stopped");
+        _webhookScrobbleChk   = MakeChk(Loc.T("ChkWebhookScrobble"));
+        _webhookNowPlayingChk = MakeChk(Loc.T("ChkWebhookNowPlaying"));
 
         foreach (var chk in new CheckBox[] { _webhookScrobbleChk, _webhookNowPlayingChk })
         {
@@ -686,16 +707,12 @@ public class MainForm : Form
 
         // Advanced section
         y += 10;
-        inner.Controls.Add(new Label
-        {
-            Text = "ADVANCED", Location = new Point(lx, y), Size = new Size(300, 18),
-            ForeColor = Color.FromArgb(70, 70, 70), Font = FontManager.Bold(8f),
-        });
+        inner.Controls.Add(SectionHeading(Loc.T("SectionAdvanced"), lx, y));
         y += 22;
 
         inner.Controls.Add(new Label
         {
-            Text = "Never scrobble these artists (one per line):", Location = new Point(lx, y),
+            Text = Loc.T("LblExcludedArtists"), Location = new Point(lx, y),
             Size = new Size(400, 18), ForeColor = CDim, Font = FontManager.Regular(9f),
         });
         y += 22;
@@ -709,25 +726,45 @@ public class MainForm : Form
         inner.Controls.Add(_excludedArtistsBox);
         y += 70;
 
-        _diagnosticLogChk = MakeChk("Write a diagnostic log file (for troubleshooting)");
+        _diagnosticLogChk = MakeChk(Loc.T("ChkDiagnosticLog"));
         _diagnosticLogChk.Location = new Point(lx, y);
         inner.Controls.Add(_diagnosticLogChk);
         y += 30;
+
+        _telemetryChk = MakeChk(Loc.T("ChkTelemetry"));
+        _telemetryChk.Location = new Point(lx, y);
+        inner.Controls.Add(_telemetryChk);
+        y += 24;
+        inner.Controls.Add(HintLabel(Loc.T("TelemetryHint"), lx + 18, y));
+        y += 44;
 
         _pageScrobble.Controls.Add(inner);
         _pageScrobble.Controls.Add(heading);
     }
 
+    /// <summary>Two-line muted hint under a checkbox; wraps instead of clipping on long translations.</summary>
+    private static Label HintLabel(string text, int x, int y) => new()
+    {
+        Text = text, Location = new Point(x, y), Size = new Size(560, 34),
+        ForeColor = Color.FromArgb(70, 70, 70), Font = FontManager.Regular(8.5f),
+    };
+
+    private static Label SectionHeading(string text, int x, int y) => new()
+    {
+        Text = text.ToUpperInvariant(), Location = new Point(x, y), Size = new Size(300, 18),
+        ForeColor = Color.FromArgb(70, 70, 70), Font = FontManager.Bold(8f),
+    };
+
     // ── About Page ───────────────────────────────────────────────────────────
 
     private void BuildAboutPage()
     {
-        var heading = PageHeading("About");
+        var heading = PageHeading(Loc.T("NavAbout"));
         heading.Dock = DockStyle.Top;
 
         var inner = new Panel { Dock = DockStyle.Fill, BackColor = CMain, AutoScroll = true };
 
-        const int lx = 28;
+        const int lx = 26;
         int y = 24;
 
         // ── Hero card ────────────────────────────────────────────────────────
@@ -796,7 +833,7 @@ public class MainForm : Form
         // ── Description ──────────────────────────────────────────────────────
         inner.Controls.Add(new Label
         {
-            Text      = "Automatic Last.fm scrobbling for Apple Music on Windows.\r\nUses the Windows SMTC API — the same interface Windows uses for its media overlay (Win+K).\r\nWorks with any SMTC-compatible media player including Spotify, VLC, and others.",
+            Text      = Loc.T("AboutDescription"),
             Location  = new Point(lx, y),
             Size      = new Size(660, 58),
             Font      = FontManager.Regular(9.5f),
@@ -808,33 +845,26 @@ public class MainForm : Form
         inner.Controls.Add(new Panel { Location = new Point(lx, y), Size = new Size(620, 1), BackColor = Color.FromArgb(30, 30, 30) });
         y += 18;
 
-        // ── Action buttons ───────────────────────────────────────────────────
-        var btnDonate = AboutActionBtn(
-            "♥  Donate", _cAccent,
-            Color.Transparent,
-            LightenColor(_cAccent, 18),
-            Color.White,
-            () => OpenUrl("https://buymeacoffee.com/daiquiri"));
-        btnDonate.Location = new Point(lx, y);
+        // ── GitHub-style action buttons ─────────────────────────────────────
+        var ghMark = LoadEmbeddedImage("github-mark.png");
 
-        var btnGitHub = AboutActionBtn(
-            "★  GitHub", Color.FromArgb(26, 26, 26),
-            Color.FromArgb(48, 48, 48),
-            Color.FromArgb(34, 34, 34),
-            CFg,
-            () => OpenUrl("https://github.com/daiquiridev/lastfm-scrobbler"));
-        btnGitHub.Location = new Point(lx + 182, y);
+        var btnGitHub  = new GhButton("GitHub", GhButton.IconKind.GitHub, ghMark, () => OpenUrl(Links.Repo));
+        var btnSponsor = new GhButton("Sponsor", GhButton.IconKind.Heart, null,   () => OpenUrl(Links.Sponsor));
+        var btnCoffee  = new GhButton(Loc.T("BtnBuyCoffee"), GhButton.IconKind.None, null, () => OpenUrl(Links.Coffee));
+        var btnHistory = new GhButton(Loc.T("BtnVersionHistory"), GhButton.IconKind.None, null, () =>
+        {
+            using var form = new VersionHistoryForm(new UpdateChecker(), _cAccent);
+            form.ShowDialog(this);
+        });
 
-        var btnSite = AboutActionBtn(
-            "↗  spacechild.dev", Color.Transparent,
-            Color.FromArgb(38, 38, 38),
-            Color.FromArgb(22, 22, 22),
-            Color.FromArgb(110, 110, 110),
-            () => OpenUrl("https://spacechild.dev"));
-        btnSite.Location = new Point(lx + 364, y);
-
-        inner.Controls.AddRange([btnDonate, btnGitHub, btnSite]);
-        y += 42 + 20;
+        var btnFlow = new FlowLayoutPanel
+        {
+            Location = new Point(lx - 4, y), Size = new Size(680, 40), AutoSize = true,
+            WrapContents = true, BackColor = Color.Transparent,
+        };
+        btnFlow.Controls.AddRange([btnGitHub, btnSponsor, btnCoffee]);
+        inner.Controls.Add(btnFlow);
+        y += 40 + 18;
 
         // ── Separator ────────────────────────────────────────────────────────
         inner.Controls.Add(new Panel { Location = new Point(lx, y), Size = new Size(620, 1), BackColor = Color.FromArgb(30, 30, 30) });
@@ -843,7 +873,7 @@ public class MainForm : Form
         // ── Version section ──────────────────────────────────────────────────
         inner.Controls.Add(new Label
         {
-            Text      = "INSTALLED VERSION",
+            Text      = Loc.T("InstalledVersion").ToUpperInvariant(),
             Location  = new Point(lx, y),
             Size      = new Size(300, 16),
             Font      = FontManager.Bold(7.5f),
@@ -854,24 +884,13 @@ public class MainForm : Form
         inner.Controls.Add(new Label
         {
             Text      = $"v{Core.UpdateChecker.DisplayVersion}",
-            Location  = new Point(lx, y),
-            Size      = new Size(100, 22),
+            Location  = new Point(lx, y + 6),
+            Size      = new Size(90, 22),
             Font      = FontManager.Regular(10f),
             ForeColor = Color.FromArgb(180, 180, 180),
         });
-
-        var historyBtn = AboutActionBtn(
-            "⊞  Version History", Color.FromArgb(24, 24, 24),
-            Color.FromArgb(42, 42, 42),
-            Color.FromArgb(30, 30, 30),
-            Color.FromArgb(150, 150, 150),
-            () =>
-            {
-                using var form = new VersionHistoryForm(new UpdateChecker(), _cAccent);
-                form.ShowDialog(this);
-            });
-        historyBtn.Location = new Point(lx + 116, y - 8);
-        inner.Controls.Add(historyBtn);
+        btnHistory.Location = new Point(lx + 96, y);
+        inner.Controls.Add(btnHistory);
         y += 50;
 
         // ── Separator ────────────────────────────────────────────────────────
@@ -881,7 +900,7 @@ public class MainForm : Form
         // ── Footer ───────────────────────────────────────────────────────────
         inner.Controls.Add(new Label
         {
-            Text      = $"© {DateTime.Now.Year} SpaceChild.dev  ·  MIT License  ·  Made with ♥ for music lovers",
+            Text      = $"© {DateTime.Now.Year} Dagkan Bayramoglu  ·  MIT License  ·  Made with ♥ for music lovers",
             Location  = new Point(lx, y),
             Size      = new Size(600, 18),
             Font      = FontManager.Regular(8.5f),
@@ -892,31 +911,71 @@ public class MainForm : Form
         _pageAbout.Controls.Add(heading);
     }
 
-    private Panel AboutActionBtn(string label, Color fill, Color border, Color hover, Color fg, Action onClick)
+    /// <summary>
+    /// A button styled after GitHub's default dark-theme button (6 px radius,
+    /// #21262d fill, hairline border, optional leading icon — the GitHub mark or
+    /// the Sponsors heart).
+    /// </summary>
+    private sealed class GhButton : Control
     {
-        bool hot = false;
-        var p = new Panel { Size = new Size(172, 38), Cursor = Cursors.Hand, BackColor = CMain };
+        public enum IconKind { None, GitHub, Heart }
 
-        p.Paint += (_, e) =>
+        private static readonly Color Fill    = Color.FromArgb(33, 38, 45);
+        private static readonly Color Hover   = Color.FromArgb(48, 54, 61);
+        private static readonly Color Border  = Color.FromArgb(60, 240, 246, 252);
+        private static readonly Color Fg      = Color.FromArgb(201, 209, 217);
+        private static readonly Color Pink    = Color.FromArgb(219, 97, 162);
+
+        private readonly IconKind _icon;
+        private readonly Image?   _image;
+        private readonly Action   _onClick;
+        private bool _hot;
+
+        public GhButton(string text, IconKind icon, Image? image, Action onClick)
         {
-            var g  = e.Graphics;
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            var rc = new Rectangle(0, 0, p.Width - 1, p.Height - 1);
-            using var path = RoundedPath(rc, 5);
-            using (var b = new SolidBrush(hot ? hover : fill)) g.FillPath(b, path);
-            if (border != Color.Transparent)
-                using (var pen = new Pen(border)) g.DrawPath(pen, path);
-            using (var tb = new SolidBrush(fg))
-            {
-                var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                g.DrawString(label, FontManager.Regular(9.5f), tb, new RectangleF(0, 0, p.Width, p.Height), sf);
-            }
-        };
+            Text = text; _icon = icon; _image = image; _onClick = onClick;
+            Cursor = Cursors.Hand; Margin = new Padding(4, 0, 8, 0);
+            Font = FontManager.Bold(9.25f);
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
+            int textW = TextRenderer.MeasureText(text, Font, Size.Empty, TextFormatFlags.NoPadding).Width;
+            Size = new Size(textW + 32 + (icon == IconKind.None ? 0 : 22), 34);
+            Click += (_, _) => _onClick();
+        }
 
-        p.MouseEnter += (_, _) => { hot = true;  p.Invalidate(); };
-        p.MouseLeave += (_, _) => { hot = false; p.Invalidate(); };
-        p.Click      += (_, _) => onClick();
-        return p;
+        protected override void OnMouseEnter(EventArgs e) { _hot = true;  Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { _hot = false; Invalidate(); base.OnMouseLeave(e); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            var rc = new Rectangle(0, 0, Width - 1, Height - 1);
+            using var path = RoundedPath(rc, 6);
+            using (var b = new SolidBrush(_hot ? Hover : Fill)) g.FillPath(b, path);
+            using (var pen = new Pen(Border)) g.DrawPath(pen, path);
+
+            int x = 14;
+            const int iconSz = 16;
+            int iy = (Height - iconSz) / 2;
+            switch (_icon)
+            {
+                case IconKind.GitHub when _image is not null:
+                    g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+                    g.DrawImage(_image, new Rectangle(x, iy, iconSz, iconSz));
+                    x += iconSz + 6;
+                    break;
+                case IconKind.Heart:
+                    Icons.DrawHeart(g, new RectangleF(x + 1, iy + 2, iconSz - 2, iconSz - 3), Pink);
+                    x += iconSz + 6;
+                    break;
+            }
+
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(x, 0, Width - x, Height), Fg,
+                TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.NoPadding);
+        }
     }
 
     private static System.Drawing.Drawing2D.GraphicsPath RoundedPath(Rectangle r, int radius)
@@ -993,8 +1052,8 @@ public class MainForm : Form
 
         var addBtn    = MakeBtn(Loc.T("BtnAddRule"),        112, 30); addBtn.Click    += AddRuleClicked;
         var delBtn    = MakeBtn(Loc.T("BtnDeleteSelected"), 112, 30); delBtn.Click    += DeleteRuleClicked;
-        var exportBtn = MakeBtn("Export Rules", 104, 30); exportBtn.Click += ExportRulesClicked;
-        var importBtn = MakeBtn("Import Rules", 104, 30); importBtn.Click += ImportRulesClicked;
+        var exportBtn = MakeBtn(Loc.T("BtnExportRules"), 104, 30); exportBtn.Click += ExportRulesClicked;
+        var importBtn = MakeBtn(Loc.T("BtnImportRules"), 104, 30); importBtn.Click += ImportRulesClicked;
         var saveBtn = MakeBtn(Loc.T("Save"), 86, 30);
         saveBtn.BackColor = _cAccent; _accentBtns.Add(saveBtn);
         saveBtn.Click += (_, _) => SaveNormSettings();
@@ -1004,9 +1063,12 @@ public class MainForm : Form
         delBtn.Location    = new Point(144, 7);
         exportBtn.Location = new Point(264, 7);
         importBtn.Location = new Point(376, 7);
-        saveBtn.Anchor   = AnchorStyles.Top | AnchorStyles.Right;
-        saveBtn.Location = new Point(790, 7);
-        btnRow.Controls.AddRange([addBtn, delBtn, exportBtn, importBtn, saveBtn]);
+        // Right-docked holder instead of an anchored absolute X — the anchor was
+        // computed against the panel's design-time width and drifted off-screen.
+        var saveHolder = new Panel { Dock = DockStyle.Right, Width = 86 + 24, BackColor = CMain };
+        saveBtn.Location = new Point(0, 7);
+        saveHolder.Controls.Add(saveBtn);
+        btnRow.Controls.AddRange([addBtn, delBtn, exportBtn, importBtn, saveHolder]);
 
         _pageNorm.Controls.Add(_rulesGrid);
         _pageNorm.Controls.Add(_autoNormChk);
@@ -1055,15 +1117,19 @@ public class MainForm : Form
         periodRow.Controls.Add(_statsSourceLbl);
         periodRow.Controls.Add(flow);
 
-        // Summary stat cards
-        var summaryRow = new Panel { Dock = DockStyle.Top, Height = 72, BackColor = Color.FromArgb(20, 20, 20) };
+        // Summary stat cards — three equal columns that share the available width
+        var summaryRow = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top, Height = 72, BackColor = Color.FromArgb(20, 20, 20),
+            ColumnCount = 3, RowCount = 1, Padding = new Padding(18, 5, 18, 5),
+        };
+        for (int i = 0; i < 3; i++) summaryRow.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / 3));
         var cardTotal  = MakeStatCard(out _bigTotal, Loc.T("StatsTotalLabel"));
         var cardWeek   = MakeStatCard(out _bigWeek,  Loc.T("StatsThisWeek"));
         var cardToday  = MakeStatCard(out _bigToday, Loc.T("StatsToday"));
-        cardTotal.Location = new Point(24,  5);
-        cardWeek.Location  = new Point(284, 5);
-        cardToday.Location = new Point(544, 5);
-        summaryRow.Controls.AddRange([cardTotal, cardWeek, cardToday]);
+        summaryRow.Controls.Add(cardTotal, 0, 0);
+        summaryRow.Controls.Add(cardWeek,  1, 0);
+        summaryRow.Controls.Add(cardToday, 2, 0);
 
         // Chart
         var chartLbl = SectionLabel(Loc.T("StatsLast14Days"));
@@ -1384,9 +1450,10 @@ public class MainForm : Form
 
     private static Panel MakeStatCard(out Label bigNum, string label)
     {
-        var card = new Panel { Size = new Size(240, 62), BackColor = Color.FromArgb(28, 28, 28) };
-        bigNum = new Label { Location = new Point(16, 4), Size = new Size(208, 32), Text = "—", Font = FontManager.Bold(20f), ForeColor = CFg };
-        var lbl = new Label { Location = new Point(16, 38), Size = new Size(208, 16), Text = label, Font = FontManager.Bold(7.5f), ForeColor = Color.FromArgb(70, 70, 70) };
+        var card = new Panel { Dock = DockStyle.Fill, Margin = new Padding(6, 0, 6, 0), BackColor = Color.FromArgb(28, 28, 28) };
+        var stretch = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Right;
+        bigNum = new Label { Location = new Point(16, 4), Size = new Size(208, 32), Text = "—", Font = FontManager.Bold(20f), ForeColor = CFg, Anchor = stretch, AutoEllipsis = true };
+        var lbl = new Label { Location = new Point(16, 38), Size = new Size(208, 16), Text = label, Font = FontManager.Bold(7.5f), ForeColor = Color.FromArgb(70, 70, 70), Anchor = stretch, AutoEllipsis = true };
         card.Controls.AddRange([bigNum, lbl]);
         return card;
     }
@@ -1395,15 +1462,17 @@ public class MainForm : Form
 
     private void BuildFriendsPage()
     {
-        var heading = PageHeading("Friends");
+        var heading = PageHeading(Loc.T("NavFriends"));
         heading.Dock = DockStyle.Top;
 
         var topBar = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Color.FromArgb(20, 20, 20) };
         _friendsStatusLbl = new Label { Location = new Point(24, 12), Size = new Size(500, 20), Font = FontManager.Regular(9f), ForeColor = CDim };
-        var refreshBtn = MakeBtn("Refresh", 100, 28);
-        refreshBtn.Location = new Point(750, 8);
+        var refreshBtn = MakeBtn(Loc.T("BtnRefreshPlain"), 100, 28);
+        var refreshHolder = new Panel { Dock = DockStyle.Right, Width = 100 + 24, BackColor = Color.Transparent };
+        refreshBtn.Location = new Point(0, 8);
         refreshBtn.Click   += (_, _) => _ = RefreshFriendsAsync();
-        topBar.Controls.AddRange([_friendsStatusLbl, refreshBtn]);
+        refreshHolder.Controls.Add(refreshBtn);
+        topBar.Controls.AddRange([_friendsStatusLbl, refreshHolder]);
 
         _friendsListPanel = new FlowLayoutPanel
         {
@@ -1424,10 +1493,10 @@ public class MainForm : Form
     {
         if (!_engine.IsAuthenticated || string.IsNullOrEmpty(_settings.Username))
         {
-            _friendsStatusLbl.Text = "Not logged in.";
+            _friendsStatusLbl.Text = Loc.T("NotLoggedIn");
             return;
         }
-        _friendsStatusLbl.Text = "Loading friends…";
+        _friendsStatusLbl.Text = Loc.T("LoadingFriends");
         _friendsListPanel.Controls.Clear();
 
         try
@@ -1750,7 +1819,7 @@ public class MainForm : Form
         if (_currentTrack is null || _scrobbled) return;
         var (playedMs, thresholdMs) = _engine.GetScrobbleProgress();
         if (thresholdMs <= 0) return;
-        _monBar.Value = (int)Math.Min(100, playedMs * 100.0 / thresholdMs);
+        _monBar.Value = (int)Math.Clamp(playedMs * 100.0 / thresholdMs, 0, 100);
         var rem       = TimeSpan.FromMilliseconds(Math.Max(0, thresholdMs - playedMs));
         _monEta.Text  = rem.TotalSeconds < 1 ? Loc.T("Now") : $"–{(int)rem.TotalSeconds}s";
     }
@@ -1811,6 +1880,8 @@ public class MainForm : Form
         _webhookNowPlayingChk.Checked = _settings.WebhookOnNowPlaying;
         _excludedArtistsBox.Text     = _settings.ExcludedArtists;
         _diagnosticLogChk.Checked    = _settings.EnableDiagnosticLog;
+        _telemetryChk.Checked        = _settings.TelemetryEnabled;
+        _hotkeysChk.Checked          = _settings.EnableGlobalHotkeys;
         var langIdx = Loc.Available.ToList().FindIndex(l => l.Code == _settings.Language);
         _langCombo.SelectedIndex = langIdx >= 0 ? langIdx : 0;
         UpdateAuthStatus();
@@ -1928,6 +1999,8 @@ public class MainForm : Form
         _settings.WebhookOnNowPlaying         = _webhookNowPlayingChk.Checked;
         _settings.ExcludedArtists             = _excludedArtistsBox.Text;
         _settings.EnableDiagnosticLog         = _diagnosticLogChk.Checked;
+        _settings.TelemetryEnabled            = _telemetryChk.Checked;
+        _settings.EnableGlobalHotkeys         = _hotkeysChk.Checked;
         if (_langCombo.SelectedIndex >= 0)
         {
             var newLang = Loc.Available[_langCombo.SelectedIndex].Code;
@@ -1941,6 +2014,7 @@ public class MainForm : Form
         _engine.UpdateSettings(_settings);
         ApplyStartWithWindows(_settings.StartWithWindows);
         RefreshMonitorStats();
+        SettingsSaved?.Invoke(this, EventArgs.Empty);
     }
 
     private void SaveNormSettings()
@@ -2045,13 +2119,13 @@ public class MainForm : Form
         _accentBar.BackColor = c;
         _monBar.ForeColor    = c;
         foreach (var btn in _accentBtns) btn.BackColor = c;
-        if (_activeNavBtn is not null) _activeNavBtn.BackColor = c;
+        if (_activeNavBtn is not null) _activeNavBtn.SetActive(true, c);
         if (_monLog       is not null) { _monLog.Accent = c; _monLog.Invalidate(); }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
 
-    private static NavButton NavBtn(string text, string icon) => new(icon, text);
+    private static NavButton NavBtn(string text, NavIcon icon) => new(icon, text);
 
     private static Label PageHeading(string text) => new()
     {
@@ -2156,7 +2230,7 @@ public class MainForm : Form
         var logoPane = new Panel { Dock = DockStyle.Left, Width = 200, BackColor = CSidebar };
         var logoLbl  = new Label
         {
-            Text = "last.fm Scrobbler", Dock = DockStyle.Fill, ForeColor = _cAccent,
+            Text = "Last.fm Scrobbler", Dock = DockStyle.Fill, ForeColor = _cAccent,
             Font = FontManager.Bold(11.5f), TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(20, 0, 0, 0), BackColor = Color.Transparent,
         };
@@ -2164,23 +2238,21 @@ public class MainForm : Form
 
         var rightPane = new Panel { Dock = DockStyle.Fill, BackColor = Color.FromArgb(16, 16, 16) };
 
-        var closeBtn = TitleBtn("✕", 46);
-        closeBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(196, 43, 28);
-        closeBtn.FlatAppearance.MouseDownBackColor = Color.FromArgb(150, 25, 10);
-        closeBtn.MouseEnter += (_, _) => closeBtn.ForeColor = Color.White;
-        closeBtn.MouseLeave += (_, _) => closeBtn.ForeColor = Color.FromArgb(150, 150, 150);
+        var closeBtn = new CaptionButton(CaptionGlyph.Close, 46)
+        {
+            HoverBack = Color.FromArgb(196, 43, 28), HoverFore = Color.White,
+            PressBack = Color.FromArgb(150, 25, 10),
+        };
         closeBtn.Click += (_, _) => Close();
 
-        _maxBtn = TitleBtn("□", 40);
-        _maxBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(38, 38, 38);
+        _maxBtn = new CaptionButton(CaptionGlyph.Maximize, 46);
         _maxBtn.Click += (_, _) =>
         {
             if (WindowState == FormWindowState.Maximized) WindowState = FormWindowState.Normal;
             else { MaximizedBounds = Screen.GetWorkingArea(this); WindowState = FormWindowState.Maximized; }
         };
 
-        var minBtn = TitleBtn("─", 40);
-        minBtn.FlatAppearance.MouseOverBackColor = Color.FromArgb(38, 38, 38);
+        var minBtn = new CaptionButton(CaptionGlyph.Minimize, 46);
         minBtn.Click += (_, _) => WindowState = FormWindowState.Minimized;
 
         rightPane.Controls.Add(minBtn);
@@ -2202,14 +2274,43 @@ public class MainForm : Form
         return bar;
     }
 
-    private static Button TitleBtn(string symbol, int width) => new()
+    /// <summary>Owner-drawn caption button (minimize / maximize / close) with DWM-style glyphs.</summary>
+    private sealed class CaptionButton : Control
     {
-        Text = symbol, Size = new Size(width, 48), Dock = DockStyle.Right,
-        FlatStyle = FlatStyle.Flat, ForeColor = Color.FromArgb(150, 150, 150),
-        BackColor = Color.Transparent, Font = FontManager.Regular(10f),
-        UseVisualStyleBackColor = false, Cursor = Cursors.Default,
-        FlatAppearance = { BorderSize = 0, MouseDownBackColor = Color.FromArgb(32, 32, 32) },
-    };
+        private bool _hot, _down;
+        private CaptionGlyph _glyph;
+
+        public Color NormalFore { get; set; } = Color.FromArgb(150, 150, 150);
+        public Color HoverFore  { get; set; } = Color.FromArgb(230, 230, 230);
+        public Color HoverBack  { get; set; } = Color.FromArgb(38, 38, 38);
+        public Color PressBack  { get; set; } = Color.FromArgb(28, 28, 28);
+
+        public CaptionGlyph Glyph { get => _glyph; set { _glyph = value; Invalidate(); } }
+
+        public void PerformClick() => OnClick(EventArgs.Empty);
+
+        public CaptionButton(CaptionGlyph glyph, int width)
+        {
+            _glyph = glyph;
+            Size   = new Size(width, 48);
+            Dock   = DockStyle.Right;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            BackColor = Color.FromArgb(16, 16, 16); // fully owner-drawn; OnPaint picks the real colour
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { _hot = true;  Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { _hot = false; _down = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) { _down = true; Invalidate(); } base.OnMouseDown(e); }
+        protected override void OnMouseUp(MouseEventArgs e)   { _down = false; Invalidate(); base.OnMouseUp(e); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var back = _down ? PressBack : _hot ? HoverBack : (Parent?.BackColor ?? Color.FromArgb(16, 16, 16));
+            e.Graphics.Clear(back);
+            Icons.DrawCaption(e.Graphics, _glyph, ClientRectangle, _hot ? HoverFore : NormalFore, DeviceDpi / 96f);
+        }
+    }
 
     // ── Resize + shadow ───────────────────────────────────────────────────────
 
@@ -2257,10 +2358,12 @@ public class MainForm : Form
     {
         private static readonly Color CHover = Color.FromArgb(28, 28, 28);
         private static readonly Color CBg    = Color.FromArgb(15, 15, 15);
-        private readonly string _icon;
-        private bool _hovered;
+        private readonly NavIcon _icon;
+        private bool  _hovered;
+        private bool  _active;
+        private Color _accent;
 
-        public NavButton(string icon, string label)
+        public NavButton(NavIcon icon, string label)
         {
             _icon = icon; Text = label; Dock = DockStyle.Top; Height = 46;
             FlatStyle = FlatStyle.Flat; ForeColor = CDim; BackColor = Color.Transparent;
@@ -2269,17 +2372,24 @@ public class MainForm : Form
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
         }
 
+        public void SetActive(bool active, Color accent)
+        {
+            _active = active; _accent = accent;
+            ForeColor = active ? Color.White : CDim;
+            Invalidate();
+        }
+
         protected override void OnMouseEnter(EventArgs e) { _hovered = true;  Invalidate(); base.OnMouseEnter(e); }
         protected override void OnMouseLeave(EventArgs e) { _hovered = false; Invalidate(); base.OnMouseLeave(e); }
 
         protected override void OnPaint(PaintEventArgs e)
         {
-            bool isActive = BackColor != Color.Transparent && BackColor != CBg;
-            e.Graphics.Clear(isActive ? Color.FromArgb(26, 26, 26) : (_hovered ? CHover : CBg));
-            if (isActive) { using var bar = new SolidBrush(BackColor); e.Graphics.FillRectangle(bar, 0, 0, 3, Height); }
-            var tf = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
-            TextRenderer.DrawText(e.Graphics, _icon, Font, new Rectangle(16, 0, 24, Height), ForeColor, tf | TextFormatFlags.HorizontalCenter);
-            TextRenderer.DrawText(e.Graphics, Text,  Font, new Rectangle(50, 0, Width - 56, Height), ForeColor, tf | TextFormatFlags.Left);
+            e.Graphics.Clear(_active ? Color.FromArgb(26, 26, 26) : (_hovered ? CHover : CBg));
+            if (_active) { using var bar = new SolidBrush(_accent); e.Graphics.FillRectangle(bar, 0, 0, 3, Height); }
+            var fg = _active || _hovered ? Color.FromArgb(220, 220, 220) : ForeColor;
+            Icons.DrawNav(e.Graphics, _icon, new Rectangle(16, 0, 24, Height), fg, DeviceDpi / 96f);
+            var tf = TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.Left | TextFormatFlags.EndEllipsis;
+            TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(50, 0, Width - 56, Height), fg, tf);
         }
     }
 

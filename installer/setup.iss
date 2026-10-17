@@ -7,8 +7,8 @@
 #endif
 
 #define AppName      "Last.fm Scrobbler"
-#define AppPublisher "dagkanbayramoglu"
-#define AppURL       "https://github.com/daiquiridev/lastfm-scrobbler"
+#define AppPublisher "Dagkan Bayramoglu"
+#define AppURL       "https://github.com/dagkan/lastfm-scrobbler"
 #define AppExeName   "LastFmScrobbler.exe"
 
 [Setup]
