@@ -220,6 +220,16 @@ actor LastFmClient {
 
     // MARK: - HTTP
 
+    private static let formUnreserved: CharacterSet = {
+        var set = CharacterSet.alphanumerics
+        set.insert(charactersIn: "-._~")
+        return set
+    }()
+
+    private static func formEncode(_ s: String) -> String {
+        s.addingPercentEncoding(withAllowedCharacters: formUnreserved) ?? ""
+    }
+
     private func call(_ method: String, args: [String: String], signed: Bool) async throws -> [String: Any] {
         var params = args
         params["method"] = method
@@ -227,8 +237,11 @@ actor LastFmClient {
 
         var request = URLRequest(url: URL(string: baseUrl)!)
         request.httpMethod = "POST"
+        // Strict form encoding: `.urlQueryAllowed` leaves & = + untouched, so a
+        // title like "Rock & Roll" or "A=B" would split into extra form fields
+        // (and "+" would decode to a space on the way in).
         request.httpBody = params
-            .map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? $0.value)" }
+            .map { "\(Self.formEncode($0.key))=\(Self.formEncode($0.value))" }
             .joined(separator: "&")
             .data(using: .utf8)
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
