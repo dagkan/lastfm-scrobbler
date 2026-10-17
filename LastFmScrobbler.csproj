@@ -11,8 +11,10 @@
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>1.2.22</Version>
-    <AssemblyVersion>1.2.22.0</AssemblyVersion>
-    <FileVersion>1.2.22.0</FileVersion>
+    <!-- Derived from Version so `dotnet publish -p:Version=x.y.z` (build.ps1 -Version)
+         also moves the assembly/file version the updater compares against. -->
+    <AssemblyVersion>$(Version).0</AssemblyVersion>
+    <FileVersion>$(Version).0</FileVersion>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Last.fm Scrobbler</Product>
     <Company>Dagkan Bayramoglu</Company>
