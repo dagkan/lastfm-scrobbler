@@ -52,7 +52,7 @@
 
 ### About Page
 - [x] App name, version shown; no build-date field
-- [x] GitHub + GitHub Sponsors buttons (GitHub button styling), Buy Me a Coffee kept as a secondary link
+- [x] GitHub + GitHub Sponsors buttons (GitHub button styling), Buy Me a Coffee kept for people without a GitHub account
 - [x] GitHub link (`github.com/dagkan/lastfm-scrobbler`), changelog link (Version History)
 - [x] App description (one paragraph)
 

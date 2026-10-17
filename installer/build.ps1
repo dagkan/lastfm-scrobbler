@@ -23,9 +23,11 @@ param(
     [string]$Notes       = "",   # semicolon-separated: "note1;note2;note3"
     [string]$BucketName  = "lastfm-releases",
     [string]$R2PublicUrl = "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev",
+    [string]$AccountId   = "a714deaab9d494ecc8294c71a3dbab32",  # Cloudflare account that owns lastfm-releases (wrangler can't pick one non-interactively)
     [switch]$SkipUpload,          # build + sign the installer locally, don't touch R2 / versions.json
     [switch]$Beta                 # side-by-side beta channel: -p:Beta=true, ISCC /DBeta, R2 prefix lastfm-scrobbler/beta
 )
+if (-not $env:CLOUDFLARE_ACCOUNT_ID) { $env:CLOUDFLARE_ACCOUNT_ID = $AccountId }
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
@@ -66,14 +68,18 @@ if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 
 # ── 3. Compile installer ─────────────────────────────────────────────────────
 
+# Prefer the stable, signed Inno Setup 6 everywhere before any 7.x preview —
+# Smart App Control / WDAC blocked an installer built with the 7.0 preview
+# loader ("Error 4551: An Application Control policy has blocked this file").
 $iscc = @(
     "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     "C:\Program Files\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
     "C:\Program Files (x86)\Inno Setup 7\ISCC.exe",
     "C:\Program Files\Inno Setup 7\ISCC.exe",
-    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
     "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+Write-Host "ISCC: $iscc" -ForegroundColor Gray
 if (-not $iscc) { throw "Inno Setup not found — download from https://jrsoftware.org/isinfo.php" }
 
 Write-Host "Compiling installer…" -ForegroundColor Cyan
@@ -110,15 +116,23 @@ if ($SkipUpload) {
 }
 
 $workerDir = "$PSScriptRoot\..\worker"
-if (-not (Test-Path "$workerDir\node_modules\.bin\wrangler.cmd")) { throw "wrangler not found. Run: npm install (in worker/)" }
+$wrangler  = "$workerDir\node_modules\.bin\wrangler.cmd"
+if (-not (Test-Path $wrangler)) { throw "wrangler not found. Run: npm install (in worker/)" }
+
+# Direct invocation with an argument array — going through `cmd /c "…"` split
+# the comma in "no-cache,no-store" into two positionals and wrangler rejected it.
+function R2Put([string]$Key, [string]$File, [string]$ContentType, [string]$CacheControl = "") {
+    $args = @("r2", "object", "put", "$BucketName/$Key", "--file", $File, "--content-type", $ContentType, "--remote")
+    if ($CacheControl) { $args += @("--cache-control", $CacheControl) }
+    & $wrangler @args
+    if ($LASTEXITCODE -ne 0) { throw "R2 upload failed: $Key" }
+}
 
 Write-Host "Uploading installer to R2…" -ForegroundColor Cyan
-cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/$R2Prefix/$installerFilename --file `"$PSScriptRoot\$installerFilename`" --content-type application/octet-stream --remote 2>&1"
-if ($LASTEXITCODE -ne 0) { throw "R2 upload (installer) failed" }
+R2Put "$R2Prefix/$installerFilename" "$PSScriptRoot\$installerFilename" "application/octet-stream"
 
 Write-Host "Uploading latest.json to R2…" -ForegroundColor Cyan
-cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/$R2Prefix/latest.json --file `"$PSScriptRoot\latest.json`" --content-type application/json --cache-control no-cache,no-store --remote 2>&1"
-if ($LASTEXITCODE -ne 0) { throw "R2 upload (manifest) failed" }
+R2Put "$R2Prefix/latest.json" "$PSScriptRoot\latest.json" "application/json" "no-cache,no-store"
 
 # ── 7. Update versions.json ──────────────────────────────────────────────────
 
@@ -176,8 +190,7 @@ $json = ConvertTo-Json -InputObject $versions -Depth 10 -AsArray
 $json | Set-Content $versionsJsonPath -Encoding utf8NoBOM
 Write-Host "versions.json updated ($($versions.Count) entries)." -ForegroundColor Green
 
-cmd /c "npx --prefix `"$workerDir`" wrangler r2 object put $BucketName/$R2Prefix/versions.json --file `"$versionsJsonPath`" --content-type application/json --cache-control no-cache,no-store --remote 2>&1"
-if ($LASTEXITCODE -ne 0) { throw "R2 upload (versions.json) failed" }
+R2Put "$R2Prefix/versions.json" $versionsJsonPath "application/json" "no-cache,no-store"
 
 Write-Host ""
 Write-Host "✅ v$Version released and uploaded." -ForegroundColor Green

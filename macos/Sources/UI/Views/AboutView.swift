@@ -26,7 +26,7 @@ struct AboutView: View {
 
                 Divider().opacity(0.4)
 
-                // GitHub-styled buttons: GitHub mark, Sponsors heart, coffee.
+                // GitHub-styled buttons: GitHub mark, Sponsors heart.
                 HStack(spacing: 10) {
                     GhButton(title: "GitHub", icon: .github) { open(Links.repo) }
                     GhButton(title: "Sponsor", icon: .heart) { open(Links.sponsor) }

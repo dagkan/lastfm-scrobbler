@@ -850,6 +850,7 @@ public class MainForm : Form
 
         var btnGitHub  = new GhButton("GitHub", GhButton.IconKind.GitHub, ghMark, () => OpenUrl(Links.Repo));
         var btnSponsor = new GhButton("Sponsor", GhButton.IconKind.Heart, null,   () => OpenUrl(Links.Sponsor));
+        // Kept alongside Sponsors: GitHub Sponsors needs a GitHub account, BMC doesn't.
         var btnCoffee  = new GhButton(Loc.T("BtnBuyCoffee"), GhButton.IconKind.None, null, () => OpenUrl(Links.Coffee));
         var btnHistory = new GhButton(Loc.T("BtnVersionHistory"), GhButton.IconKind.None, null, () =>
         {
@@ -2318,6 +2319,22 @@ public class MainForm : Form
     {
         get { var cp = base.CreateParams; cp.ClassStyle |= 0x00020000; return cp; }
     }
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        // Windows 11: let DWM round the outer corners of the borderless window
+        // (DWMWA_WINDOW_CORNER_PREFERENCE = DWMWCP_ROUND). No-op on Windows 10.
+        try
+        {
+            int pref = 2;
+            DwmSetWindowAttribute(Handle, 33, ref pref, sizeof(int));
+        }
+        catch { }
+    }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
 
     protected override void WndProc(ref Message m)
     {
