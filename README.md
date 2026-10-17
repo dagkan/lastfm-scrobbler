@@ -88,7 +88,7 @@ brew install xcodegen
 ./build-mac.sh --notes "a;b;c"    # notarize + publish to R2 (needs a notarytool keychain profile)
 ```
 
-Requirements: macOS 13+, Xcode 16+, a Developer ID certificate for the team in `ExportOptions.plist`.
+Requirements: macOS 13+, Xcode 16+, a Developer ID certificate for the team in `ExportOptions.plist`. Status, test plan and roadmap for the port: [`macos/BRIEF.md`](macos/BRIEF.md).
 
 ---
 

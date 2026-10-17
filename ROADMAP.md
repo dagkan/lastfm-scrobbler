@@ -38,15 +38,31 @@
 
 - [ ] MSIX packaging for Microsoft Store distribution — needs a Store account
 - [x] Auto-updater
-- [ ] Code signing — needs a code-signing certificate
+- [ ] Code signing — needs a code-signing certificate. Now a concrete problem, not a nice-to-have: Windows 11 Smart App Control blocked an unsigned installer during the 1.2.22 beta test ("Error 4551: An Application Control policy has blocked this file"). Until then: always build with the stable Inno Setup 6 loader (the 7.0 preview was the trigger). Options: OV cert via SignPath (free for OSS) or Azure Trusted Signing.
 
 ## Longer term / Ideas
 
 - [x] Scrobble from local media players (VLC, foobar2000) — covered by generic SMTC mode when any SMTC-compatible player exposes a session; no dedicated plugin architecture for players that don't
 - [ ] Last.fm friends' listening activity in the tray (currently only on the in-app Friends page)
-- [ ] macOS companion app (using MusicKit / MediaPlayer APIs)
+- [~] macOS companion app — SwiftUI menu-bar port in `macos/`, feature-complete but never compiled on a Mac yet. Plan and hand-off: [`macos/BRIEF.md`](macos/BRIEF.md)
 
 ---
+
+## v1.2.22 — shipped 2026-10-17
+
+- [x] Crash fixes from telemetry: monotonic listen-time clock (456/463 reports), STA UI thread (clipboard / dialogs)
+- [x] Vector title-bar + sidebar icons, GitHub / Sponsor / Buy me a coffee buttons, rounded corners on Win11
+- [x] Release notes in the update dialog; Version History tolerant of string `notes`
+- [x] Opt-in global hotkeys (AltGr collision), opt-out telemetry re-implemented (1.2.20/1.2.21 sources were lost)
+- [x] Side-by-side **beta channel**: `build.ps1 -Beta` → `/lastfm-scrobbler/beta/`, own AppId / folder / mutex / Run key
+- [x] Layout fixes at the 900 px minimum width; Friends/About/Settings strings localized (7 languages)
+
+### Open after 1.2.22
+- [ ] Code signing (see v2.0.0) — the single biggest install-time risk left
+- [ ] Proxy host stays `proxy.lastfm.spacechild.dev` for now; a move needs a release pointing at the new host first, old host kept as alias ≥ 6 months
+- [ ] Re-uploading an installer under an existing filename can be served stale from the Cloudflare edge — always bump the version instead
+- [ ] Crash reporter only covers WinForms `ThreadException` / `UnhandledException`; native crashes (e.g. in WinRT SMTC) are invisible
+- [ ] `installer/versions.json` is the source of truth for the changelog — keep it committed; `build.ps1` prefers it over R2
 
 ## Pending / Backlog
 
