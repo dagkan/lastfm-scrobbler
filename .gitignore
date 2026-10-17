@@ -64,3 +64,8 @@ claude-ops*
 # Test results
 TestResults/
 coverage/
+
+# macOS build outputs
+macos/build/
+macos/**/xcuserdata/
+macos/*.dmg

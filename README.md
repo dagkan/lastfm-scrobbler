@@ -77,6 +77,21 @@ No .NET runtime installation needed — the app is self-contained.
 
 ---
 
+## macOS
+
+A native SwiftUI menu-bar port lives in [`macos/`](macos/). It listens to the Music app's `com.apple.Music.playerInfo` notifications (no Automation permission needed), shares the same Cloudflare proxy, normalization rules, offline queue and update channel as the Windows build, and is distributed as a signed + notarized DMG.
+
+```bash
+cd macos
+brew install xcodegen
+./build-mac.sh --skip-upload      # local DMG in macos/build/
+./build-mac.sh --notes "a;b;c"    # notarize + publish to R2 (needs a notarytool keychain profile)
+```
+
+Requirements: macOS 13+, Xcode 16+, a Developer ID certificate for the team in `ExportOptions.plist`.
+
+---
+
 ## Getting Your Last.fm API Key
 
 This app requires a Last.fm API key to authenticate and submit scrobbles. The key is free and takes about 2 minutes to obtain.
