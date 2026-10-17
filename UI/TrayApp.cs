@@ -135,7 +135,11 @@ public class TrayApp : ApplicationContext
 
     private void OnUpdateItemClicked(object? sender, EventArgs e)
     {
-        ShowUpdateDialog(_pendingUpdate);
+        // Always re-check on a manual click. Reusing the startup result meant a
+        // manifest re-published since then (new SHA) produced "SHA-256 mismatch"
+        // because the dialog downloaded the new file against the old hash.
+        _pendingUpdate = null;
+        ShowUpdateDialog(null);
     }
 
     private void ShowUpdateDialog(UpdateChecker.UpdateInfo? preFound)

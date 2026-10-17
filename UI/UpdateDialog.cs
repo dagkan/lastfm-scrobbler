@@ -226,9 +226,13 @@ public class UpdateDialog : Form
 
     private void SetState_Error(string msg)
     {
+        // Drop the stale UpdateInfo so Retry performs a fresh check instead of
+        // re-downloading against a hash that may no longer match the manifest.
+        bool wasDownload      = _foundUpdate is not null;
+        _foundUpdate          = null;
         _statusIcon.Text      = "✕";
         _statusIcon.ForeColor = Color.FromArgb(220, 80, 80);
-        _statusTitle.Text     = "Update check failed";
+        _statusTitle.Text     = wasDownload ? "Update failed" : "Update check failed";
         _statusBody.Text      = msg;
         HideNotes();
         _progress.Visible     = false;
