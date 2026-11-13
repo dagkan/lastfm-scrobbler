@@ -1047,29 +1047,76 @@ public class MainForm : Form
         _rulesGrid.Columns.Add(new DataGridViewCheckBoxColumn { Name = "Enabled", HeaderText = Loc.T("ColEnabled"),     FillWeight = 5,  Width = 44 });
         _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Field",   HeaderText = Loc.T("ColField"),       FillWeight = 10, ReadOnly = true });
         _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Desc",    HeaderText = Loc.T("ColDescription"), FillWeight = 28, ReadOnly = true });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Pattern", HeaderText = "Pattern",               FillWeight = 32 });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Replace", HeaderText = Loc.T("ColReplace"),     FillWeight = 15 });
-        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "App",     HeaderText = "App", FillWeight = 12, ToolTipText = "Only apply to a player whose name contains this (blank = all players)" });
+        // Text cells are read-only: rules are edited in RuleEditForm (Edit button or
+        // double-click), which validates the regex. Only the On checkbox toggles in place.
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Pattern", HeaderText = "Pattern",               FillWeight = 32, ReadOnly = true });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "Replace", HeaderText = Loc.T("ColReplace"),     FillWeight = 15, ReadOnly = true });
+        _rulesGrid.Columns.Add(new DataGridViewTextBoxColumn  { Name = "App",     HeaderText = "App", FillWeight = 12, ReadOnly = true, ToolTipText = "Only apply to a player whose name contains this (blank = all players)" });
+        // Commit a checkbox click to the cell at once, so the grid always holds the
+        // toggle the user sees (it is carried across grid refreshes until Save).
+        _rulesGrid.CurrentCellDirtyStateChanged += (_, _) =>
+        {
+            if (_rulesGrid.IsCurrentCellDirty && _rulesGrid.CurrentCell is DataGridViewCheckBoxCell)
+                _rulesGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
+        };
+        _rulesGrid.CellDoubleClick += (_, e) =>
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+            if (_rulesGrid.Columns[e.ColumnIndex].Name == "Enabled") return; // that's two toggles, not "edit"
+            // Posted rather than called: the edit ends by rebuilding the grid's rows,
+            // which should not happen while the grid is still dispatching this click.
+            var row = _rulesGrid.Rows[e.RowIndex];
+            BeginInvoke(() => EditRule(row));
+        };
 
-        var addBtn    = MakeBtn(Loc.T("BtnAddRule"),        112, 30); addBtn.Click    += AddRuleClicked;
-        var delBtn    = MakeBtn(Loc.T("BtnDeleteSelected"), 112, 30); delBtn.Click    += DeleteRuleClicked;
-        var exportBtn = MakeBtn(Loc.T("BtnExportRules"), 104, 30); exportBtn.Click += ExportRulesClicked;
-        var importBtn = MakeBtn(Loc.T("BtnImportRules"), 104, 30); importBtn.Click += ImportRulesClicked;
-        var saveBtn = MakeBtn(Loc.T("Save"), 86, 30);
+        // Buttons are sized to their (translated) text and wrap onto a second line
+        // when the window is too narrow for all of them — fixed widths clipped the
+        // longer languages.
+        Button RowBtn(string name, string text, EventHandler onClick)
+        {
+            var b = MakeBtn(text, 0, 30);
+            b.Name  = name;
+            b.Width = Math.Max(86, TextRenderer.MeasureText(text, b.Font).Width + 26);
+            b.Click += onClick;
+            return b;
+        }
+        var addBtn    = RowBtn("RulesAdd",    Loc.T("BtnAddRule"),        AddRuleClicked);
+        var editBtn   = RowBtn("RulesEdit",   Loc.T("BtnEditRule"),       EditRuleClicked);
+        var delBtn    = RowBtn("RulesDelete", Loc.T("BtnDeleteSelected"), DeleteRuleClicked);
+        var exportBtn = RowBtn("RulesExport", Loc.T("BtnExportRules"),    ExportRulesClicked);
+        var importBtn = RowBtn("RulesImport", Loc.T("BtnImportRules"),    ImportRulesClicked);
+        var saveBtn   = RowBtn("RulesSave",   Loc.T("Save"),              (_, _) => SaveNormSettings());
         saveBtn.BackColor = _cAccent; _accentBtns.Add(saveBtn);
-        saveBtn.Click += (_, _) => SaveNormSettings();
 
         var btnRow = new Panel { Dock = DockStyle.Bottom, Height = 44, BackColor = CMain };
-        addBtn.Location    = new Point(24,  7);
-        delBtn.Location    = new Point(144, 7);
-        exportBtn.Location = new Point(264, 7);
-        importBtn.Location = new Point(376, 7);
-        // Right-docked holder instead of an anchored absolute X — the anchor was
-        // computed against the panel's design-time width and drifted off-screen.
-        var saveHolder = new Panel { Dock = DockStyle.Right, Width = 86 + 24, BackColor = CMain };
-        saveBtn.Location = new Point(0, 7);
-        saveHolder.Controls.Add(saveBtn);
-        btnRow.Controls.AddRange([addBtn, delBtn, exportBtn, importBtn, saveHolder]);
+        Button[] leftBtns = [addBtn, editBtn, delBtn, exportBtn, importBtn];
+        btnRow.Controls.AddRange(leftBtns);
+        btnRow.Controls.Add(saveBtn);
+
+        void LayoutRuleButtons()
+        {
+            const int margin = 24, gap = 8, top = 7, lineHeight = 37;
+            int width = btnRow.ClientSize.Width;
+            if (width <= 0) return;
+
+            // Save sits at the right edge of the first line; the others flow from the
+            // left and wrap before they would run into it (or off the panel).
+            int saveX = Math.Max(margin, width - margin - saveBtn.Width);
+            int x = margin, line = 0;
+            foreach (var b in leftBtns)
+            {
+                int limit = line == 0 ? saveX - gap : width - margin;
+                if (x > margin && x + b.Width > limit) { line++; x = margin; }
+                b.Location = new Point(x, top + line * lineHeight);
+                x += b.Width + gap;
+            }
+            saveBtn.Location = new Point(saveX, top);
+
+            int height = top + (line + 1) * lineHeight;
+            if (btnRow.Height != height) btnRow.Height = height;
+        }
+        btnRow.Resize += (_, _) => LayoutRuleButtons();
+        LayoutRuleButtons();
 
         _pageNorm.Controls.Add(_rulesGrid);
         _pageNorm.Controls.Add(_autoNormChk);
@@ -1720,6 +1767,9 @@ public class MainForm : Form
         if (!isNewTrack) return;
 
         _scrobbled = false;
+        // Clear the previous play's "100 % / now…" straight away; OnTick refills it
+        // from the engine (which may already be a few seconds into a detected repeat).
+        _monBar.Value = 0; _monEta.Text = "";
         _monNowLbl.Text = Loc.T("NowPlaying");
         _monTitle.ForeColor = CFg;
         _monArtist.ForeColor = Color.FromArgb(175, 175, 175);
@@ -1973,14 +2023,34 @@ public class MainForm : Form
         public override Color SeparatorLight              => Color.FromArgb(40, 40, 40);
     }
 
-    private void LoadRules()
+    /// <summary>
+    /// (Re)fills the rules grid from the database. On checkboxes the user has toggled
+    /// but not yet saved (grid value ≠ stored value) are carried over, so adding,
+    /// editing, deleting or importing a rule does not silently undo them.
+    /// </summary>
+    private void LoadRules(int? selectRuleId = null)
     {
+        var pendingEnabled = new Dictionary<int, bool>();
+        foreach (DataGridViewRow row in _rulesGrid.Rows)
+        {
+            if (row.Tag is not NormalizationRule shown) continue;
+            var ticked = Convert.ToBoolean(row.Cells["Enabled"].Value);
+            if (ticked != shown.IsEnabled) pendingEnabled[shown.Id] = ticked;
+        }
+
         _rulesGrid.Rows.Clear();
         foreach (var rule in _db.LoadRules())
         {
-            var i = _rulesGrid.Rows.Add(rule.IsEnabled, rule.Field.ToString(), rule.Description, rule.Pattern, rule.Replacement, rule.AppFilter);
-            _rulesGrid.Rows[i].Tag = rule;
+            var enabled = pendingEnabled.TryGetValue(rule.Id, out var pending) ? pending : rule.IsEnabled;
+            var i = _rulesGrid.Rows.Add(enabled, RuleEditForm.FieldLabel(rule.Field), rule.Description, rule.Pattern, rule.Replacement, rule.AppFilter);
+            _rulesGrid.Rows[i].Tag = rule; // keeps the stored IsEnabled — that is what marks a toggle as pending
             if (rule.IsBuiltIn) _rulesGrid.Rows[i].DefaultCellStyle.ForeColor = Color.FromArgb(70, 70, 70);
+            if (rule.Id == selectRuleId)
+            {
+                _rulesGrid.ClearSelection();
+                _rulesGrid.Rows[i].Selected = true;
+                _rulesGrid.CurrentCell = _rulesGrid.Rows[i].Cells["Desc"];
+            }
         }
     }
 
@@ -2023,10 +2093,9 @@ public class MainForm : Form
         foreach (DataGridViewRow row in _rulesGrid.Rows)
         {
             if (row.Tag is not NormalizationRule rule) continue;
-            rule.IsEnabled   = Convert.ToBoolean(row.Cells["Enabled"].Value);
-            rule.Pattern     = row.Cells["Pattern"].Value?.ToString() ?? rule.Pattern;
-            rule.Replacement = row.Cells["Replace"].Value?.ToString() ?? rule.Replacement;
-            rule.AppFilter   = row.Cells["App"].Value?.ToString() ?? rule.AppFilter;
+            // The text cells are read-only now (rules are edited in RuleEditForm, which
+            // saves on confirm) — the only thing left pending in the grid is the toggle.
+            rule.IsEnabled = Convert.ToBoolean(row.Cells["Enabled"].Value);
             _db.SaveRule(rule);
         }
         _settings.AutoNormalize = _autoNormChk.Checked;
@@ -2044,10 +2113,19 @@ public class MainForm : Form
         };
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
-        var custom = _db.LoadRules().Where(r => !r.IsBuiltIn).ToList();
-        var json = Newtonsoft.Json.JsonConvert.SerializeObject(custom, Newtonsoft.Json.Formatting.Indented);
-        File.WriteAllText(dlg.FileName, json);
-        MessageBox.Show($"Exported {custom.Count} rule(s) to {dlg.FileName}", "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        try
+        {
+            var custom = _db.LoadRules().Where(r => !r.IsBuiltIn).ToList();
+            // Field is written by name ("Artist"), not number, so the file can be edited by hand.
+            File.WriteAllText(dlg.FileName, RuleJson.Serialize(custom));
+            MessageBox.Show($"Exported {custom.Count} rule(s) to {dlg.FileName}", "Export Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            // Unwritable folder, file open elsewhere, disk full… — report it instead of
+            // letting it surface as an unhandled UI exception.
+            MessageBox.Show(string.Format(Loc.T("MsgExportFailed"), ex.Message), Loc.T("TitleExportError"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
     }
 
     private void ImportRulesClicked(object? sender, EventArgs e)
@@ -2058,16 +2136,19 @@ public class MainForm : Form
         try
         {
             var json  = File.ReadAllText(dlg.FileName);
-            var rules = Newtonsoft.Json.JsonConvert.DeserializeObject<List<NormalizationRule>>(json) ?? [];
+            // Accepts Field both as a name (current exports) and as a number (1.2.22 and earlier).
+            var rules = RuleJson.Deserialize(json);
             int imported = 0;
             foreach (var rule in rules)
             {
+                if (rule.Pattern.Length == 0) continue; // nothing to match — an empty regex would match everywhere
                 rule.Id = 0; // always insert as new — avoids clobbering an existing rule by id
                 rule.IsBuiltIn = false;
                 _db.SaveRule(rule);
                 imported++;
             }
             LoadRules();
+            _engine.ReloadRules();
             MessageBox.Show($"Imported {imported} rule(s).", "Import Complete", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
         catch (Exception ex)
@@ -2091,8 +2172,49 @@ public class MainForm : Form
 
     private void AddRuleClicked(object? sender, EventArgs e)
     {
-        _db.SaveRule(new NormalizationRule { Field = RuleField.Title, Pattern = @"\s*\(example\)", Replacement = "", Description = Loc.T("NewRule"), IsEnabled = true });
-        LoadRules();
+        var rule = new NormalizationRule { Field = RuleField.Title, IsEnabled = true };
+        using var dlg = new RuleEditForm(rule, isNew: true, _cAccent);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return; // nothing is created unless confirmed
+
+        _db.SaveRule(rule);
+        // SaveRule does not hand back the new id; rules load in id order, so the new one is the highest.
+        var newId = _db.LoadRules().Select(r => r.Id).DefaultIfEmpty(0).Max();
+        LoadRules(selectRuleId: newId);
+        _engine.ReloadRules();
+    }
+
+    private void EditRuleClicked(object? sender, EventArgs e)
+    {
+        // Edit what is highlighted. Normally that is the current row; after a Ctrl+click
+        // (or a selection made by an accessibility tool) the two can differ, and opening
+        // a row that is not highlighted would be the wrong one.
+        var row = _rulesGrid.CurrentRow is { Selected: true } current ? current
+                : _rulesGrid.SelectedRows.Count > 0 ? _rulesGrid.SelectedRows[0]
+                : _rulesGrid.CurrentRow;
+        if (row is not null) EditRule(row);
+    }
+
+    private void EditRule(DataGridViewRow row)
+    {
+        if (row.DataGridView is null || row.Tag is not NormalizationRule stored) return;
+
+        // Edit a copy so Cancel leaves the grid's rule untouched. The dialog starts from
+        // the checkbox as shown in the grid, which may be a not-yet-saved toggle.
+        var edited = new NormalizationRule
+        {
+            Id = stored.Id, Field = stored.Field, Pattern = stored.Pattern, Replacement = stored.Replacement,
+            Description = stored.Description, IsBuiltIn = stored.IsBuiltIn, AppFilter = stored.AppFilter,
+            IsEnabled = Convert.ToBoolean(row.Cells["Enabled"].Value),
+        };
+        using var dlg = new RuleEditForm(edited, isNew: false, _cAccent);
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+        _db.SaveRule(edited);
+        // This row is now exactly what is stored — it must not be treated as a pending toggle.
+        row.Tag = edited;
+        row.Cells["Enabled"].Value = edited.IsEnabled;
+        LoadRules(selectRuleId: edited.Id);
+        _engine.ReloadRules();
     }
 
     private void DeleteRuleClicked(object? sender, EventArgs e)
@@ -2101,6 +2223,7 @@ public class MainForm : Form
             if (row.Tag is NormalizationRule rule && !rule.IsBuiltIn)
                 _db.DeleteRule(rule.Id);
         LoadRules();
+        _engine.ReloadRules();
     }
 
     // ── Accent Color ──────────────────────────────────────────────────────────

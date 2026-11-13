@@ -46,13 +46,15 @@ public class TrackNormalizer
         return track;
     }
 
+    /// <summary>Regex options every rule runs with — shared with the rule editor's validation/preview.</summary>
+    public const RegexOptions RuleOptions = RegexOptions.IgnoreCase | RegexOptions.CultureInvariant;
+    public static readonly TimeSpan RuleTimeout = TimeSpan.FromMilliseconds(100);
+
     private static string Apply(string input, NormalizationRule rule)
     {
         try
         {
-            return Regex.Replace(input, rule.Pattern, rule.Replacement,
-                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
-                TimeSpan.FromMilliseconds(100));
+            return Regex.Replace(input, rule.Pattern, rule.Replacement, RuleOptions, RuleTimeout);
         }
         catch (RegexMatchTimeoutException)
         {

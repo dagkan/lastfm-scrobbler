@@ -5,6 +5,9 @@ namespace LastFmScrobbler.Core;
 
 public enum PlaybackState { NoSession, Playing, Paused, Stopped }
 
+/// <summary>One reading of the session timeline, in plain seconds (no WinRT types).</summary>
+public readonly record struct TimelineSnapshot(double PositionSeconds, double EndSeconds, bool IsPlaying);
+
 /// <summary>
 /// Listens to Windows System Media Transport Controls (SMTC) and raises
 /// events when the playing track changes or playback stops.
@@ -27,13 +30,18 @@ public class MediaWatcher : IDisposable
     private System.Threading.Timer? _nullDebounce;
     private const int NullDebounceMs = 1500;
 
-    // Repeat-play detection: a position sample that jumps from near-the-end
-    // back to near-zero for the *same* track (Title|Artist) means the user
-    // replayed it — MediaPropertiesChanged never fires for that since the
-    // metadata didn't change, so we have to catch it via the timeline instead.
-    private TimeSpan _lastPosition;
-    private string? _lastPositionKey;
-    private double _lastDurationSec;
+    // Repeat-play detection: the position wrapping from near-the-end back to
+    // near-zero for the *same* track (Title|Artist) means it was replayed —
+    // MediaPropertiesChanged never fires for that since the metadata didn't
+    // change, so we have to catch it via the timeline instead. The detector is
+    // fed from both TimelinePropertiesChanged and the engine's 1 s poll, so a
+    // dropped event or an awkwardly timed sample no longer loses the loop.
+    // State is guarded by _raiseLock.
+    private readonly RepeatDetector _repeat = new();
+    // Serialises "read the timeline, feed the detector" so samples reach the
+    // detector in the order they were read. Taken with TryEnter only: a sampler
+    // that finds it busy just skips, the next sample is at most a second away.
+    private readonly object _sampleLock = new();
 
     public async Task StartAsync(bool filterAppleMusicOnly)
     {
@@ -74,7 +82,7 @@ public class MediaWatcher : IDisposable
 
         if (_session is null)
         {
-            lock (_raiseLock) { _lastPositionKey = null; _lastPosition = TimeSpan.Zero; _lastDurationSec = 0; }
+            lock (_raiseLock) _repeat.Reset();
             RaiseTrackChanged(null);
             return;
         }
@@ -107,51 +115,66 @@ public class MediaWatcher : IDisposable
 
     private void OnTimelinePropertiesChanged(
         GlobalSystemMediaTransportControlsSession sender,
-        TimelinePropertiesChangedEventArgs args)
-    {
-        GlobalSystemMediaTransportControlsSession? session;
-        Track? lastTrack;
-        TimeSpan prevPos;
-        string? prevKey;
-        lock (_raiseLock)
-        {
-            session = _session;
-            lastTrack = _lastTrack;
-            prevPos = _lastPosition;
-            prevKey = _lastPositionKey;
-        }
-        if (session is null || lastTrack is null) return;
+        TimelinePropertiesChangedEventArgs args) => SampleTimeline("event");
 
-        GlobalSystemMediaTransportControlsSessionTimelineProperties? tl;
-        GlobalSystemMediaTransportControlsSessionPlaybackStatus status;
+    /// <summary>
+    /// Reads the timeline once, feeds the repeat detector and returns what was read.
+    /// Called from ScrobbleEngine's 1-second tick so repeat detection does not depend
+    /// on TimelinePropertiesChanged arriving (or arriving in order). Returns null when
+    /// there is no session/timeline, or when another sample is being taken right now.
+    /// </summary>
+    public TimelineSnapshot? PollTimeline() => SampleTimeline("poll");
+
+    private TimelineSnapshot? SampleTimeline(string source)
+    {
+        if (!Monitor.TryEnter(_sampleLock)) return null;
         try
         {
-            tl = session.GetTimelineProperties();
-            status = session.GetPlaybackInfo().PlaybackStatus;
+            GlobalSystemMediaTransportControlsSession? session;
+            Track? lastTrack;
+            lock (_raiseLock)
+            {
+                session = _session;
+                lastTrack = _lastTrack;
+            }
+            if (session is null) return null;
+
+            GlobalSystemMediaTransportControlsSessionTimelineProperties? tl;
+            GlobalSystemMediaTransportControlsSessionPlaybackStatus status;
+            try
+            {
+                tl = session.GetTimelineProperties();
+                status = session.GetPlaybackInfo().PlaybackStatus;
+            }
+            catch { return null; }
+            if (tl is null) return null;
+
+            var snapshot = new TimelineSnapshot(
+                tl.Position.TotalSeconds,
+                tl.EndTime.TotalSeconds,
+                status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing);
+
+            if (lastTrack is null) return snapshot;
+
+            bool isRepeat;
+            lock (_raiseLock)
+            {
+                // The track may have been replaced (or cleared) while we were reading;
+                // in that case this sample belongs to nobody — skip the detector.
+                isRepeat = ReferenceEquals(lastTrack, _lastTrack) &&
+                    _repeat.Observe(lastTrack.Title + "|" + lastTrack.Artist,
+                        snapshot.PositionSeconds, snapshot.EndSeconds, snapshot.IsPlaying);
+            }
+
+            if (isRepeat)
+            {
+                FileLogger.Log($"repeat detected (timeline wrap, via {source}): {lastTrack.Artist} — {lastTrack.Title} " +
+                               $"pos={snapshot.PositionSeconds:0.0}s dur={snapshot.EndSeconds:0}s");
+                _ = FetchAndRaiseAsync(force: true);
+            }
+            return snapshot;
         }
-        catch { return; }
-        if (tl is null) return;
-
-        var curPos = tl.Position;
-        var dur = tl.EndTime.TotalSeconds;
-        var key = lastTrack.Title + "|" + lastTrack.Artist;
-
-        bool isRepeat =
-            status == GlobalSystemMediaTransportControlsSessionPlaybackStatus.Playing &&
-            prevKey == key &&
-            dur >= 30 &&
-            prevPos.TotalSeconds >= dur - 12 &&
-            curPos.TotalSeconds <= 3;
-
-        lock (_raiseLock)
-        {
-            _lastPosition = curPos;
-            _lastPositionKey = key;
-            _lastDurationSec = dur;
-        }
-
-        if (isRepeat)
-            _ = FetchAndRaiseAsync(force: true);
+        finally { Monitor.Exit(_sampleLock); }
     }
 
     private GlobalSystemMediaTransportControlsSession? FindBestSession(
@@ -307,7 +330,7 @@ public class MediaWatcher : IDisposable
                         capturedLast = _lastTrack;
                         if (capturedLast is null) return;
                         _lastTrack = null;
-                        _lastPositionKey = null;
+                        _repeat.Reset();
                         _nullDebounce?.Dispose();
                         _nullDebounce = null;
                     }

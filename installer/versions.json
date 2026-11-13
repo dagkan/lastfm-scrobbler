@@ -35,7 +35,7 @@
     "sha256": "b1e0ec8c337b356bbbf4aeca16ef0da7bf3f9ee92db698262cff725f18156194",
     "date": "2026-07-09",
     "notes": [
-      "Anonymous, opt-out usage stats and crash reporting (no track/artist/username data ever sent) â€” toggle in Scrobbling > Advanced"
+      "Anonymous, opt-out usage stats and crash reporting (no track/artist/username data ever sent) — toggle in Scrobbling > Advanced"
     ]
   },
   {
@@ -44,7 +44,7 @@
     "sha256": "21f09ca994fc0e4acd255b419013eb3545c9dac0fa8464765c8a244bdef1b37c",
     "date": "2026-07-08",
     "notes": [
-      "Fix: Statistics page crashed with a NULL-data error (1.2.18 regression) â€” local-time day calculations no longer rely on a SQLite date modifier that failed on real timestamp data",
+      "Fix: Statistics page crashed with a NULL-data error (1.2.18 regression) — local-time day calculations no longer rely on a SQLite date modifier that failed on real timestamp data",
       "Fix: Settings page couldn't be scrolled down to reach the Advanced section"
     ]
   },

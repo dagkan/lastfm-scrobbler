@@ -36,6 +36,25 @@ public class ScrobbleEngine : IDisposable
     private long _lastPollTicks;
     private int _scrobbledGeneration = -1;
 
+    // ── Repeat-play fallback state (guarded by _lock) ────────────────────────
+    // MediaWatcher reports a repeat when it sees the timeline wrap. If that wrap is
+    // never observed (a player that barely updates its timeline, or unlucky timing),
+    // nothing would ever start a new play for a looping track. So keep counting the
+    // time played in the *current* play even after it has scrobbled; once that
+    // exceeds the track's length while the same item is still playing from near its
+    // start, the track must have started over.
+    private long _listenedMs;      // like _playedMs, but keeps counting after the scrobble
+    private long _playStartTicks;  // monotonic time the current play was started
+    private Track? _currentRawTrack; // pre-normalization identity of _currentTrack
+    // True when the current play began as a detected repeat (timeline wrap or the
+    // fallback above). Such a play is a real new listen, so it skips the duplicate window.
+    private bool _currentPlayIsRepeat;
+
+    // (The decision itself is RepeatDetector.LoopedWithoutWrap.)
+    // A same-track repeat signal this soon after a play began is the same loop being
+    // reported twice (watcher + fallback, or a duplicated event) — ignore it.
+    private const int RepeatGuardMs = 20_000;
+
     private readonly Dictionary<(string artist, string title), string> _albumCache =
         new(new AlbumCacheComparer());
 
@@ -123,6 +142,7 @@ public class ScrobbleEngine : IDisposable
             {
                 FileLogger.Log("now_playing: (stopped)");
                 _currentTrack = null;
+                _currentRawTrack = null;
                 NowPlayingChanged?.Invoke(this, null);
                 if (_settings.WebhookOnNowPlaying)
                     WebhookClient.Post(_settings.WebhookUrl, "stopped", null);
@@ -135,26 +155,57 @@ public class ScrobbleEngine : IDisposable
             {
                 FileLogger.Log($"excluded artist, skipping: {track.Artist} — {track.Title}");
                 _currentTrack = null;
+                _currentRawTrack = null;
                 NowPlayingChanged?.Invoke(this, null);
                 return;
             }
 
-            FileLogger.Log($"now_playing: {track.Artist} — {track.Title} [{track.SourceApp}]");
+            // The watcher only re-raises the track that is already current when it has
+            // detected a repeat (or after a stop, but then _currentTrack is null).
+            bool isRepeat = _currentTrack is not null && rawTrack.IsSameTrack(_currentRawTrack);
+            if (isRepeat)
+            {
+                var sinceStartMs = Environment.TickCount64 - _playStartTicks;
+                if (sinceStartMs < RepeatGuardMs)
+                {
+                    FileLogger.Log($"repeat signal ignored ({sinceStartMs} ms after this play started): {track.Artist} — {track.Title}");
+                    return;
+                }
+            }
 
-            _currentTrack = track;
-            _trackStartedAt = DateTime.UtcNow;
-            var gen = ++_trackGeneration;
+            FileLogger.Log(isRepeat
+                ? $"now_playing (repeat, timeline wrap): {track.Artist} — {track.Title} [{track.SourceApp}]"
+                : $"now_playing: {track.Artist} — {track.Title} [{track.SourceApp}]");
 
-            // Reset the listen-time accumulator for this (possibly repeated) track.
-            _playedMs = 0;
-            _thresholdMs = CalculateThresholdMs(track);
-            _lastPollTicks = Environment.TickCount64;
-
-            NowPlayingChanged?.Invoke(this, track);
-            if (_settings.WebhookOnNowPlaying)
-                WebhookClient.Post(_settings.WebhookUrl, "now_playing", track);
-            _ = ResolveAlbumThenProceedAsync(track, gen);
+            _currentRawTrack = rawTrack;
+            BeginPlay(track, seedPlayedMs: 0, isRepeat: isRepeat);
         }
+    }
+
+    /// <summary>
+    /// Starts a new play of <paramref name="track"/>: new generation, fresh listen-time
+    /// accumulators, now-playing notifications. <paramref name="seedPlayedMs"/> is how far
+    /// into the track playback already is (0 for a normal start). <paramref name="isRepeat"/>
+    /// marks a play that began as a detected loop of the current track, which exempts it
+    /// from the duplicate window. Caller holds _lock.
+    /// </summary>
+    private void BeginPlay(Track track, long seedPlayedMs, bool isRepeat)
+    {
+        _currentTrack = track;
+        _currentPlayIsRepeat = isRepeat;
+        _trackStartedAt = DateTime.UtcNow - TimeSpan.FromMilliseconds(seedPlayedMs);
+        var gen = ++_trackGeneration;
+
+        // Reset the listen-time accumulators for this (possibly repeated) track.
+        _playedMs = seedPlayedMs;
+        _listenedMs = seedPlayedMs;
+        _thresholdMs = CalculateThresholdMs(track);
+        _lastPollTicks = _playStartTicks = Environment.TickCount64;
+
+        NowPlayingChanged?.Invoke(this, track);
+        if (_settings.WebhookOnNowPlaying)
+            WebhookClient.Post(_settings.WebhookUrl, "now_playing", track);
+        _ = ResolveAlbumThenProceedAsync(track, gen);
     }
 
     private async Task ResolveAlbumThenProceedAsync(Track track, int gen)
@@ -244,20 +295,44 @@ public class ScrobbleEngine : IDisposable
     private void OnProgressTick()
     {
         var state = _watcher.GetPlaybackState(); // read before taking _lock — no nested lock ordering
+        // Also feeds the watcher's repeat detector, so a wrap is noticed even when
+        // TimelinePropertiesChanged is not delivered for it.
+        var timeline = _watcher.PollTimeline();
         var now = Environment.TickCount64;
         Track? track = null;
         DateTime startedAt = default;
         int gen = 0;
+        bool isRepeatPlay = false;
         bool fire = false;
 
         lock (_lock)
         {
             if (_currentTrack is null) { _lastPollTicks = now; return; }
-            gen = _trackGeneration;
-            if (_scrobbledGeneration == gen) { _lastPollTicks = now; return; }
 
             var deltaMs = Math.Clamp(now - _lastPollTicks, 0, 2000);
             _lastPollTicks = now;
+            if (state == PlaybackState.Playing)
+                _listenedMs += deltaMs;
+
+            if (IsFallbackRepeat(_currentTrack, state, timeline, out var positionSec))
+            {
+                var positionMs = (long)(positionSec * 1000);
+                FileLogger.Log($"repeat detected (engine fallback, no timeline wrap seen): {_currentTrack.Artist} — {_currentTrack.Title} " +
+                               $"listened={_listenedMs / 1000}s dur={_currentTrack.DurationSeconds}s pos={positionSec:0.0}s");
+
+                // Same track, new listen. A fresh DetectedAt is what tells the UI this
+                // is a new play rather than a metadata refresh of the current one.
+                var replay = _currentTrack.Clone();
+                replay.DetectedAt = DateTime.UtcNow;
+                // Seed from the live position so the scrobble point and the reported
+                // start time line up with the real loop, not with when we noticed it.
+                BeginPlay(replay, seedPlayedMs: Math.Max(0, positionMs), isRepeat: true);
+                return;
+            }
+
+            gen = _trackGeneration;
+            if (_scrobbledGeneration == gen) return;
+
             if (state == PlaybackState.Playing)
                 _playedMs += deltaMs;
 
@@ -266,17 +341,34 @@ public class ScrobbleEngine : IDisposable
                 _scrobbledGeneration = gen;
                 track = _currentTrack;
                 startedAt = _trackStartedAt;
+                isRepeatPlay = _currentPlayIsRepeat;
                 fire = true;
             }
         }
 
         if (fire && track is not null)
-            _ = DoScrobbleAsync(track, startedAt, gen);
+            _ = DoScrobbleAsync(track, startedAt, gen, isRepeatPlay);
+    }
+
+    /// <summary>
+    /// True when the current track has been playing for longer than it lasts and the
+    /// live timeline shows the same item playing from near its start — i.e. it looped
+    /// without the watcher seeing the wrap. Caller holds _lock.
+    /// </summary>
+    private bool IsFallbackRepeat(Track current, PlaybackState state, TimelineSnapshot? timeline, out double positionSec)
+    {
+        positionSec = 0;
+        if (state != PlaybackState.Playing) return false;
+        if (timeline is not { IsPlaying: true } tl) return false;
+        if (!RepeatDetector.LoopedWithoutWrap(_listenedMs, current.DurationSeconds, tl.PositionSeconds, tl.EndSeconds))
+            return false;
+        positionSec = Math.Max(0, tl.PositionSeconds);
+        return true;
     }
 
     // ── Scrobble ─────────────────────────────────────────────────────────────
 
-    private async Task DoScrobbleAsync(Track track, DateTime startedAt, int gen)
+    private async Task DoScrobbleAsync(Track track, DateTime startedAt, int gen, bool isRepeatPlay)
     {
         lock (_lock)
         {
@@ -291,10 +383,14 @@ public class ScrobbleEngine : IDisposable
             if (!proceed) return;
         }
 
-        // Duplicate suppression
-        if (_settings.DuplicateWindowMinutes > 0 &&
+        // Duplicate suppression: stops the same listen being sent twice (e.g. after an
+        // app restart mid-track). A detected repeat is a real new listen, so it is exempt —
+        // otherwise every other loop of a track shorter than the window would be dropped.
+        if (!isRepeatPlay &&
+            _settings.DuplicateWindowMinutes > 0 &&
             _db.WasRecentlyScrobbled(scrobbleTrack.Artist, scrobbleTrack.Title, _settings.DuplicateWindowMinutes))
         {
+            FileLogger.Log($"scrobble skipped (duplicate window {_settings.DuplicateWindowMinutes} min): {scrobbleTrack.Artist} — {scrobbleTrack.Title}");
             return;
         }
 

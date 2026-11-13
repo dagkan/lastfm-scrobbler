@@ -10,7 +10,7 @@
     <AssemblyName>LastFmScrobbler</AssemblyName>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>1.2.22</Version>
+    <Version>1.2.24</Version>
     <!-- Derived from Version so `dotnet publish -p:Version=x.y.z` (build.ps1 -Version)
          also moves the assembly/file version the updater compares against. -->
     <AssemblyVersion>$(Version).0</AssemblyVersion>
