@@ -1,5 +1,17 @@
 [
   {
+    "version": "1.2.24",
+    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.24.exe",
+    "sha256": "009a6f70951f845b206ecdf6368164edb03f0f3f812b2b460a418b8155e6ea0a",
+    "date": "2026-11-13",
+    "notes": [
+      "Fix: every loop of a track on repeat is now scrobbled",
+      "Repeats are no longer held back by Duplicate protection, and the progress bar resets on each loop",
+      "New: Add/Edit dialog for normalization rules with live pattern check and a Try it box",
+      "Fix: exporting rules shows an error instead of crashing"
+    ]
+  },
+  {
     "version": "1.2.22",
     "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.22.exe",
     "sha256": "47a4acd85d860dda8d344d227ad28382c38c3194e36741e3b2e3079df7874bf0",
@@ -98,18 +110,6 @@
     "version": "1.2.13",
     "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.13.exe",
     "sha256": "5b055094f2db2d6eca60d0f40254ab028a3f452fef9400e96a6215f8ec3d452b",
-    "date": "2026-05-12",
-    "notes": [
-      "Monitor shows last played track when idle",
-      "Version History redesigned as a clean changelog",
-      "Log no longer shows duplicate Now playing entries",
-      "Fix: Check for Updates dialog no longer gets stuck hidden"
-    ]
-  },
-  {
-    "version": "1.2.12",
-    "url": "https://pub-8a5464b225534730b481b262ffe4748b.r2.dev/lastfm-scrobbler/LastFmScrobbler-Setup-1.2.12.exe",
-    "sha256": "41989ddf2fbfe50d0b70238863e8691882b5ab77266175ed5bd377db0e77b080",
     "date": "2026-05-12",
     "notes": [
       "Monitor shows last played track when idle",
